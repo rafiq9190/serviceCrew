@@ -1,0 +1,17 @@
+
+
+{
+  "name": "servicecrew",
+  "version": "1.0.0",
+  "description": "Door-to-door service booking, dispatch, teams, vendors, and payments WordPress plugin.",
+  "main": "index.js",
+  "scripts": {
+    "test:e2e": "playwright test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "GPL-2.0-or-later",
+  "devDependencies": {
+    "@playwright/test": "^1.61.1"
+  }
+}
