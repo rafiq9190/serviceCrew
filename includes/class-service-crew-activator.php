@@ -55,17 +55,34 @@ class Service_Crew_Activator {
 	}
 
 	/**
-	 * Registers the sc_crew_member role.
+	 * Registers the sc_crew_member role and grants administrators the
+	 * sc_service CPT's meta capabilities.
 	 *
-	 * No wp-admin capabilities at all — this role exists only so the future
-	 * PWA (Phase 1d) can authenticate crew/vendor users via Application
-	 * Passwords against custom REST routes. REST permission callbacks check
-	 * the role/identity directly rather than relying on wp-admin caps.
+	 * sc_crew_member gets no wp-admin capabilities at all — it exists only so
+	 * the future PWA (Phase 1d) can authenticate crew/vendor users via
+	 * Application Passwords against custom REST routes. REST permission
+	 * callbacks check the role/identity directly rather than relying on
+	 * wp-admin caps.
+	 *
+	 * edit_sc_service/read_sc_service/delete_sc_service are custom capability
+	 * strings (see Service_Crew_Services::register_post_type()), not core
+	 * ones, so the administrator role needs them added explicitly — unlike
+	 * 'manage_options', administrators don't have them by default.
 	 *
 	 * @return void
 	 */
 	private static function register_roles() {
 		add_role( 'sc_crew_member', __( 'Crew Member', 'service-crew' ), array() );
+
+		$administrator = get_role( 'administrator' );
+		if ( $administrator ) {
+			$administrator->add_cap( 'edit_sc_service' );
+			$administrator->add_cap( 'read_sc_service' );
+			$administrator->add_cap( 'delete_sc_service' );
+			$administrator->add_cap( 'edit_sc_crew' );
+			$administrator->add_cap( 'read_sc_crew' );
+			$administrator->add_cap( 'delete_sc_crew' );
+		}
 	}
 
 	/**

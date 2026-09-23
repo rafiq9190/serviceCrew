@@ -34,9 +34,11 @@ define( 'SERVICE_CREW_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'SERVICE_CREW_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
 
 /**
- * PSR-4-ish autoloader for Service_Crew_* classes living under includes/.
+ * PSR-4-ish autoloader for Service_Crew_* classes living under includes/,
+ * admin/, public/, blocks/ or api/ — whichever of those the class's feature
+ * belongs to (see CLAUDE.md's directory convention).
  *
- * Service_Crew_Foo_Bar => includes/class-service-crew-foo-bar.php
+ * Service_Crew_Foo_Bar => <dir>/class-service-crew-foo-bar.php
  *
  * @param string $class_name Fully qualified class name being requested.
  * @return void
@@ -48,10 +50,14 @@ spl_autoload_register(
 		}
 
 		$file_name = 'class-' . str_replace( '_', '-', strtolower( $class_name ) ) . '.php';
-		$file_path = SERVICE_CREW_PLUGIN_DIR . 'includes/' . $file_name;
 
-		if ( file_exists( $file_path ) ) {
-			require_once $file_path;
+		foreach ( array( 'includes', 'admin', 'public', 'blocks', 'api' ) as $dir ) {
+			$file_path = SERVICE_CREW_PLUGIN_DIR . $dir . '/' . $file_name;
+
+			if ( file_exists( $file_path ) ) {
+				require_once $file_path;
+				return;
+			}
 		}
 	}
 );
@@ -63,12 +69,21 @@ register_deactivation_hook( __FILE__, array( 'Service_Crew_Deactivator', 'deacti
  * Bootstraps the plugin once all plugins are loaded.
  *
  * Feature classes (CPTs, REST controllers, pricing/capacity/matching, etc.)
- * register themselves on their own hooks; this function only wires up
- * cross-cutting bootstrap concerns such as translations.
+ * register their own WordPress hooks (init, admin_menu, save_post, etc.)
+ * from their own constructors — this function's only feature-adjacent job
+ * is to instantiate each one exactly once so the autoloader picks it up;
+ * it never contains CPT args, meta box markup, or any other feature logic
+ * itself. Cross-cutting bootstrap concerns such as translations live here
+ * too.
  *
  * @return void
  */
 function service_crew_init() {
 	load_plugin_textdomain( 'service-crew', false, dirname( SERVICE_CREW_PLUGIN_BASENAME ) . '/languages' );
+
+	new Service_Crew_Services();
+	new Service_Crew_Crew();
+	new Service_Crew_Components();
+	new Service_Crew_Services_Shortcode();
 }
 add_action( 'plugins_loaded', 'service_crew_init' );

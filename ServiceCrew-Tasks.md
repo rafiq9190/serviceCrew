@@ -2,19 +2,17 @@
 
 Live status for every build task in `ServiceCrew-Plan-v2.md`, broken out from each phase's "Builds:" list. This file is the source of truth for what's done — conversation history can be compacted or lost, this file can't. Anyone (or any fresh session) opening this repo should be able to read this file and know exactly where the build stands, with zero dependence on chat memory.
 
-**Update this file, don't just remember the status.** Each agent in the five-role workflow updates the row for the task it just touched, at the point described below, before finishing its turn.
+**Update this file, don't just remember the status.** Mark a task's row when it's implemented, and again once the user has manually verified it — don't mark a task `done` without that manual check.
 
 ## Status values
 
-| Value | Set by | Meaning |
-|---|---|---|
-| `not-started` | — | Nobody has picked this up yet. |
-| `built` | `plugin-backend` / `plugin-frontend` | Task implemented, awaiting `plugin-lead`. |
-| `flagged` | `plugin-lead` | Sent back to the builder with specific reasons (see the changelog / conversation for the reasons at flag time). |
-| `cleared` | `plugin-lead` | Matches the plan, conventions followed. Awaiting `plugin-qa`. |
-| `qa-passed` | `plugin-qa` | Playwright coverage written and passing. Task is done. |
+| Value | Meaning |
+|---|---|
+| `not-started` | Nobody has picked this up yet. |
+| `built` | Task implemented, awaiting the user's manual check. |
+| `done` | User has manually verified it works. Task is complete. |
 
-A phase's `Phase review` row is set to `reviewed` by `plugin-reviewer` once its phase-end audit (`wp-plugin-review` skill + cross-check) is complete.
+A phase's `Phase review` row is set to `done` once the user has reviewed the whole phase.
 
 ---
 
@@ -22,11 +20,11 @@ A phase's `Phase review` row is set to `reviewed` by `plugin-reviewer` once its 
 
 | Task | Status |
 |---|---|
-| DB schema + activator/deactivator (no `sc_location`) | qa-passed |
-| ~~Roles (`sc_crew_member`, etc.)~~ — merged into the row above | qa-passed |
-| CPT `sc_service` + meta boxes | not-started |
-| CPT `sc_crew` + meta boxes (type, address+ZIP, lat/lng, radius, photo, availability, time off) | not-started |
-| Components with quantity counters + quantity-discount tiers | not-started |
+| DB schema + activator/deactivator (no `sc_location`) | done |
+| ~~Roles (`sc_crew_member`, etc.)~~ — merged into the row above | done |
+| CPT `sc_service` + meta boxes | done |
+| CPT `sc_crew` + meta boxes (type, address+ZIP, lat/lng, radius, photo, availability, time off) | built |
+| Components with quantity counters + quantity-discount tiers | built |
 | `class-service-crew-geocoding.php` wrapper + cache | not-started |
 | Availability class | not-started |
 | Pricing class (pure calc: components, quantity discounts, advance-payment tiers, minimum deposit) | not-started |
@@ -103,6 +101,10 @@ A phase's `Phase review` row is set to `reviewed` by `plugin-reviewer` once its 
 | **End-of-Phase-1 full-codebase `wp-plugin-review` pass** | not-started |
 
 ---
+
+## Built beyond the plan
+
+- `[service_crew_services]` — read-only, publicly-visible shortcode listing published services (name/price/duration). Not in `ServiceCrew-Plan-v2.md`; the plan's only front-end shortcode is `[service_crew_booking]` (Phase 1b-2). Built by request ahead of that. `public/class-service-crew-services-shortcode.php`.
 
 ## Out of scope right now (not tracked here)
 

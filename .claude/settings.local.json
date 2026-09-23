@@ -1,7 +1,10 @@
+
+
 {
   "permissions": {
     "allow": [
-      "Read(//e//**)"
+      "Read(//e//**)",
+      "Bash(git push *)"
     ]
   }
 }
