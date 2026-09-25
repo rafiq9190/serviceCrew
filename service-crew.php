@@ -26,7 +26,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * activator revision can bump it independently and run incremental
  * dbDelta() migrations without requiring a full plugin version bump.
  */
-define( 'SERVICE_CREW_VERSION', '1.0.0' );
+define( 'SERVICE_CREW_VERSION', '1.0.14' );
 define( 'SERVICE_CREW_DB_VERSION', '1.0.0' );
 define( 'SERVICE_CREW_PLUGIN_FILE', __FILE__ );
 define( 'SERVICE_CREW_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
@@ -83,7 +83,19 @@ function service_crew_init() {
 
 	new Service_Crew_Services();
 	new Service_Crew_Crew();
-	new Service_Crew_Components();
+	new Service_Crew_Crew_Controller();
+	new Service_Crew_Services_Controller();
+	new Service_Crew_Discounts();
+	new Service_Crew_Settings();
+	new Service_Crew_Appearance();
+	new Service_Crew_Admin_App();
+	new Service_Crew_Geocoding();
 	new Service_Crew_Services_Shortcode();
+	new Service_Crew_Booking_Shortcode();
+	new Service_Crew_Wizard();
+	new Service_Crew_Payments();
+	new Service_Crew_Gateway_Stripe();
+	new Service_Crew_Bookings();
+	new Service_Crew_Bookings_Controller();
 }
 add_action( 'plugins_loaded', 'service_crew_init' );

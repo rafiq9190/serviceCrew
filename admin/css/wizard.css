@@ -1,0 +1,249 @@
+/**
+ * Setup wizard layout. Renders inside the same #sc-app-root used by
+ * Service_Crew_Admin_App's four screens (see app.css for the design tokens
+ * and shared components — buttons, inputs, fields, cards — this file only
+ * adds the wizard's own step layout on top of them).
+ */
+
+/*
+ * Modal shell — printed by Service_Crew_Wizard::maybe_render_modal_markup()
+ * on whatever admin page a fresh activation lands on, wrapping #sc-app-root
+ * rather than replacing it, so app-wizard.js's step rendering is identical
+ * whether it's here or on the dedicated full-page "Setup Wizard" screen.
+ * Colors are hardcoded, not var(--sc-*): this markup is a parent/sibling of
+ * #sc-app-root, not a descendant of it, so it sits outside the scope those
+ * custom properties are declared on — same reasoning as .sc-app-header and
+ * .sc-app-toasts in app.css.
+ */
+
+.sc-wizard-modal-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 100000;
+	background: rgba(15, 23, 42, 0.6);
+	display: flex;
+	align-items: flex-start;
+	justify-content: center;
+	overflow-y: auto;
+	padding: 40px 20px;
+}
+
+.sc-wizard-modal-dialog {
+	position: relative;
+	width: 100%;
+	max-width: 820px;
+	background: #f8fafc;
+	border-radius: 16px;
+	box-shadow: 0 24px 60px rgba(15, 23, 42, 0.45);
+	padding: 8px;
+}
+
+.sc-wizard-modal-close {
+	position: absolute;
+	top: 14px;
+	right: 14px;
+	z-index: 1;
+	width: 32px;
+	height: 32px;
+	border-radius: 999px;
+	border: 1px solid #e2e8f0;
+	background: #ffffff;
+	color: #64748b;
+	font-size: 18px;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.sc-wizard-modal-close:hover {
+	background: #f8fafc;
+	color: #0f172a;
+}
+
+.sc-wizard-modal-dialog .sc-wizard-page {
+	margin: 24px auto 24px;
+}
+
+.sc-wizard-page {
+	max-width: 760px;
+	margin: 24px auto 64px;
+}
+
+.sc-wizard-header {
+	display: flex;
+	align-items: flex-start;
+	gap: 14px;
+	margin-bottom: 24px;
+}
+
+.sc-wizard-header h1 {
+	margin: 0 0 4px;
+	font-size: 22px;
+}
+
+.sc-wizard-header__icon {
+	flex: 0 0 auto;
+	color: #fff;
+	background: linear-gradient(135deg, var(--sc-accent), var(--sc-accent-dark));
+	border-radius: var(--sc-radius-sm);
+	width: 22px;
+	height: 22px;
+	font-size: 20px;
+	padding: 10px;
+	box-sizing: content-box;
+	box-shadow: 0 3px 8px rgba(79, 70, 229, 0.35);
+}
+
+/* Progress */
+
+.sc-wizard-progress {
+	display: flex;
+	justify-content: space-between;
+	list-style: none;
+	margin: 0 0 24px;
+	padding: 0;
+}
+
+.sc-wizard-progress__step {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 6px;
+	flex: 1 1 0;
+	text-align: center;
+	position: relative;
+}
+
+.sc-wizard-progress__step:not(:last-child)::after {
+	content: "";
+	position: absolute;
+	top: 13px;
+	left: 55%;
+	width: 90%;
+	height: 2px;
+	background: var(--sc-border);
+	z-index: 0;
+}
+
+.sc-wizard-progress__step.is-done:not(:last-child)::after {
+	background: var(--sc-accent);
+}
+
+.sc-wizard-progress__dot {
+	position: relative;
+	z-index: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 26px;
+	height: 26px;
+	border-radius: 999px;
+	background: var(--sc-surface);
+	border: 2px solid var(--sc-border);
+	color: var(--sc-muted);
+	font-size: 12px;
+	font-weight: 700;
+}
+
+.sc-wizard-progress__step.is-current .sc-wizard-progress__dot {
+	border-color: var(--sc-accent);
+	color: var(--sc-accent);
+}
+
+.sc-wizard-progress__step.is-done .sc-wizard-progress__dot {
+	background: var(--sc-accent);
+	border-color: var(--sc-accent);
+	color: #fff;
+}
+
+.sc-wizard-progress__label {
+	font-size: 11.5px;
+	color: var(--sc-muted);
+	max-width: 90px;
+}
+
+.sc-wizard-progress__step.is-current .sc-wizard-progress__label {
+	color: var(--sc-text);
+	font-weight: 600;
+}
+
+/* Card + actions */
+
+.sc-wizard-card {
+	max-width: none;
+}
+
+.sc-wizard-card h2 {
+	margin-top: 0;
+}
+
+.sc-wizard-actions {
+	display: flex;
+	justify-content: space-between;
+	margin-top: 20px;
+}
+
+/* Business basics */
+
+.sc-wizard-logo-preview {
+	min-height: 1px;
+	margin-bottom: 10px;
+}
+
+.sc-wizard-logo-preview__img {
+	max-width: 120px;
+	max-height: 80px;
+	border-radius: var(--sc-radius-sm);
+	border: 1px solid var(--sc-border);
+	display: block;
+}
+
+.sc-wizard-logo-actions {
+	display: flex;
+	gap: 8px;
+}
+
+.sc-wizard-color {
+	max-width: 160px;
+}
+
+/* Finish checklist */
+
+.sc-wizard-checklist {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.sc-wizard-checklist__row {
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
+	padding: 10px 0;
+	border-bottom: 1px solid var(--sc-border);
+}
+
+.sc-wizard-checklist__row:last-child {
+	border-bottom: none;
+}
+
+.sc-wizard-checklist__icon {
+	flex: 0 0 auto;
+	align-self: center;
+}
+
+.sc-wizard-checklist__icon.is-done {
+	color: var(--sc-accent);
+}
+
+.sc-wizard-checklist__icon.is-pending {
+	color: var(--sc-muted);
+}
+
+.sc-wizard-checklist__label {
+	font-weight: 600;
+	font-size: 13.5px;
+}
+
+.sc-wizard-checklist .sc-help {
+	margin: 0;
+}

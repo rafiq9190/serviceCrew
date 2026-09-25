@@ -30,6 +30,11 @@ class Service_Crew_Activator {
 		self::register_roles();
 
 		update_option( 'sc_db_version', SERVICE_CREW_DB_VERSION );
+
+		// Consumed (and deleted) by Service_Crew_Wizard::maybe_redirect_to_wizard()
+		// on the very next admin request, so a single activation redirects to
+		// the setup wizard exactly once.
+		set_transient( 'sc_activation_redirect', true, 30 );
 	}
 
 	/**

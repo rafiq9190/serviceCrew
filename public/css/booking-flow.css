@@ -1,0 +1,593 @@
+/**
+ * [service_crew_booking] four-step animated flow shell (stepper header +
+ * panels + footer nav) around the embedded [service_crew_services] browser
+ * (Step 1 reuses .sc-booking-widget directly — see booking-widget.css for
+ * that shell's own styling). Colors are the same admin-configurable
+ * --sc-w-* set, scoped here too by
+ * Service_Crew_Appearance::build_color_css('.sc-booking-widget, .sc-booking-flow').
+ */
+
+.sc-booking-flow {
+	/* Same non-color token values as .sc-booking-widget in booking-widget.css
+	   (the single source of truth for what these numbers are) — duplicated
+	   here because CSS custom properties don't cross from one element to a
+	   sibling, only down to descendants, and .sc-flow-* elements are outside
+	   the nested .sc-booking-widget Step 1 mounts. */
+	--sc-w-radius-lg: 12px;
+	--sc-w-radius-md: 10px;
+	--sc-w-radius-sm: 8px;
+	--sc-w-radius-xs: 6px;
+	--sc-w-radius-pill: 999px;
+
+	font-size: 15px;
+	color: var(--sc-w-text, #0f172a);
+}
+
+.sc-booking-flow * {
+	box-sizing: border-box;
+}
+
+.sc-flow-shell {
+	/* Full width, by request — fills whatever the theme's content area
+	   gives it instead of capping at a fixed card width. */
+	width: 100%;
+	background: var(--sc-w-surface, #ffffff);
+	border: 1px solid var(--sc-w-border, #e2e8f0);
+	border-radius: var(--sc-w-radius-lg);
+	box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+	padding: 28px;
+}
+
+/* Step 1's embedded 3-column browser wants the full shell width, but a
+   calendar/payment-form/thank-you card stretched edge-to-edge across a wide
+   page reads as broken, not spacious — those three keep a comfortable
+   reading width, centered inside the now-full-width shell. */
+.sc-flow-panel:not([data-step="0"]) {
+	max-width: 640px;
+	margin-left: auto;
+	margin-right: auto;
+}
+
+/* Stepper header */
+
+.sc-flow-stepper {
+	display: flex;
+	align-items: flex-start;
+	margin-bottom: 28px;
+}
+
+.sc-flow-step {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8px;
+	flex: 0 0 auto;
+	min-width: 76px;
+}
+
+.sc-flow-step__circle {
+	width: 36px;
+	height: 36px;
+	border-radius: 50%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 14px;
+	font-weight: 700;
+	background: var(--sc-w-surface, #ffffff);
+	border: 2px solid var(--sc-w-border, #e2e8f0);
+	color: var(--sc-w-muted-text, #64748b);
+	transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease;
+}
+
+.sc-flow-step.is-active .sc-flow-step__circle,
+.sc-flow-step.is-complete .sc-flow-step__circle {
+	background: var(--sc-w-stepper-color, #4f46e5);
+	border-color: var(--sc-w-stepper-color, #4f46e5);
+	color: #ffffff;
+}
+
+/* Draws attention to the current step without depending on the admin's
+   accent color for the glow itself — a scale pulse instead of a
+   box-shadow color, so it looks right on any palette. */
+.sc-flow-step.is-active .sc-flow-step__circle {
+	animation: sc-flow-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes sc-flow-pulse {
+	0%, 100% { transform: scale(1); }
+	50% { transform: scale(1.1); }
+}
+
+.sc-flow-step__label {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--sc-w-muted-text, #64748b);
+	text-align: center;
+	white-space: nowrap;
+	transition: color 0.25s ease;
+}
+
+.sc-flow-step.is-active .sc-flow-step__label,
+.sc-flow-step.is-complete .sc-flow-step__label {
+	color: var(--sc-w-text, #0f172a);
+}
+
+.sc-flow-step__connector {
+	position: relative;
+	flex: 1 1 auto;
+	height: 2px;
+	margin-top: 17px;
+	background: var(--sc-w-border, #e2e8f0);
+	overflow: hidden;
+}
+
+.sc-flow-step__connector::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	background: var(--sc-w-stepper-color, #4f46e5);
+	transform: scaleX(0);
+	transform-origin: left;
+	transition: transform 0.5s ease;
+}
+
+.sc-flow-step__connector.is-complete::after {
+	transform: scaleX(1);
+}
+
+/* Panels */
+
+.sc-flow-panel {
+	display: none;
+}
+
+.sc-flow-panel.is-active {
+	display: block;
+	animation: sc-flow-fade-in 0.35s ease;
+}
+
+@keyframes sc-flow-fade-in {
+	from { opacity: 0; transform: translateY(8px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+
+.sc-flow-panel__title {
+	margin: 0 0 4px;
+	font-size: 20px;
+	font-weight: 700;
+	color: var(--sc-w-text, #0f172a);
+}
+
+.sc-flow-panel__subtitle {
+	margin: 0 0 20px;
+	font-size: 13.5px;
+	color: var(--sc-w-muted-text, #64748b);
+}
+
+.sc-flow-error {
+	margin-top: 0;
+	padding: 0 14px;
+	border-radius: var(--sc-w-radius-sm);
+	background: #fef2f2;
+	color: #dc2626;
+	font-size: 13px;
+	line-height: 2.6;
+	opacity: 0;
+	max-height: 0;
+	overflow: hidden;
+	transition: opacity 0.2s ease, max-height 0.2s ease, margin-top 0.2s ease;
+}
+
+.sc-flow-error.is-visible {
+	opacity: 1;
+	max-height: 60px;
+	margin-top: 12px;
+}
+
+/* Step 2: calendar */
+
+.sc-flow-calendar {
+	background: var(--sc-w-background, #f8fafc);
+	border: 1px solid var(--sc-w-border, #e2e8f0);
+	border-radius: var(--sc-w-radius-md);
+	padding: 16px;
+	margin-bottom: 20px;
+}
+
+.sc-flow-calendar__header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 12px;
+}
+
+.sc-flow-calendar__label {
+	font-size: 14px;
+	font-weight: 700;
+	color: var(--sc-w-text, #0f172a);
+}
+
+.sc-flow-calendar__nav {
+	/*
+	 * !important on the box-shape properties only: the active theme's own
+	 * global button reset (e.g. Astra's `button { padding: 15px 30px; }`)
+	 * has no width/height/padding of its own to lose a normal cascade fight
+	 * to — this rule simply never declared those properties before, so the
+	 * theme's values were the only ones in play and rendered an oval pill
+	 * instead of a circle. Forcing them here is the standard, deliberate
+	 * fix for a public-facing widget that has to look right under any theme.
+	 */
+	display: inline-flex !important;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	width: 30px !important;
+	height: 30px !important;
+	padding: 0 !important;
+	margin: 0;
+	border-radius: 50% !important;
+	border: 1px solid var(--sc-w-border, #e2e8f0);
+	background: var(--sc-w-surface, #ffffff);
+	color: var(--sc-w-text, #0f172a);
+	font-size: 16px;
+	line-height: 1;
+	cursor: pointer;
+	transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.sc-flow-calendar__nav:hover {
+	background: var(--sc-w-hover-bg, #eef2ff);
+	border-color: var(--sc-w-calendar-color, #4f46e5);
+}
+
+.sc-flow-calendar__grid {
+	display: grid;
+	grid-template-columns: repeat(7, 1fr);
+	gap: 4px;
+}
+
+.sc-flow-calendar__weekday {
+	text-align: center;
+	font-size: 11px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.03em;
+	color: var(--sc-w-muted-text, #64748b);
+	padding-bottom: 6px;
+}
+
+.sc-flow-calendar__cell {
+	aspect-ratio: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: var(--sc-w-radius-sm);
+	border: 1px solid transparent;
+	background: var(--sc-w-surface, #ffffff);
+	color: var(--sc-w-text, #0f172a);
+	font-size: 13px;
+	cursor: pointer;
+	transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
+}
+
+.sc-flow-calendar__cell:hover:not(.is-disabled):not(.is-selected) {
+	background: var(--sc-w-hover-bg, #eef2ff);
+	transform: translateY(-1px);
+}
+
+.sc-flow-calendar__cell.is-selected {
+	background: var(--sc-w-calendar-color, #4f46e5);
+	border-color: var(--sc-w-calendar-color, #4f46e5);
+	color: #ffffff;
+	font-weight: 700;
+}
+
+.sc-flow-calendar__cell.is-disabled {
+	background: transparent;
+	color: var(--sc-w-muted-text, #64748b);
+	opacity: 0.35;
+	cursor: default;
+}
+
+.sc-flow-calendar__cell--empty {
+	background: transparent;
+	border: none;
+	cursor: default;
+}
+
+/* Step 2: arrival windows */
+
+.sc-flow-windows__title {
+	margin: 0 0 10px;
+	font-size: 14px;
+	font-weight: 700;
+	color: var(--sc-w-text, #0f172a);
+}
+
+.sc-flow-windows__list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+}
+
+.sc-flow-window-btn {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 10px 16px;
+	border-radius: var(--sc-w-radius-md);
+	border: 1px solid var(--sc-w-border, #e2e8f0);
+	background: var(--sc-w-surface, #ffffff);
+	text-align: left;
+	cursor: pointer;
+	transition: border-color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
+}
+
+.sc-flow-window-btn:hover {
+	border-color: var(--sc-w-calendar-color, #4f46e5);
+	transform: translateY(-1px);
+}
+
+.sc-flow-window-btn.is-selected {
+	background: var(--sc-w-calendar-color, #4f46e5);
+	border-color: var(--sc-w-calendar-color, #4f46e5);
+}
+
+.sc-flow-window-btn.is-selected .sc-flow-window-btn__label,
+.sc-flow-window-btn.is-selected .sc-flow-window-btn__time {
+	color: #ffffff;
+}
+
+.sc-flow-window-btn__label {
+	font-size: 13.5px;
+	font-weight: 700;
+	color: var(--sc-w-text, #0f172a);
+}
+
+.sc-flow-window-btn__time {
+	font-size: 12px;
+	color: var(--sc-w-muted-text, #64748b);
+}
+
+/* Step 3: payment */
+
+.sc-flow-summary {
+	background: var(--sc-w-background, #f8fafc);
+	border: 1px solid var(--sc-w-border, #e2e8f0);
+	border-radius: var(--sc-w-radius-md);
+	padding: 16px;
+	margin-bottom: 20px;
+}
+
+.sc-flow-summary__row {
+	display: flex;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 6px 0;
+	font-size: 13.5px;
+	color: var(--sc-w-text, #0f172a);
+}
+
+.sc-flow-summary__row--muted {
+	font-size: 12.5px;
+	color: var(--sc-w-muted-text, #64748b);
+}
+
+.sc-flow-summary__row--discount {
+	color: #16a34a;
+	font-weight: 600;
+}
+
+.sc-flow-summary__row--grand {
+	margin-top: 6px;
+	padding-top: 10px;
+	border-top: 1px solid var(--sc-w-border, #e2e8f0);
+	font-size: 16px;
+	font-weight: 700;
+}
+
+.sc-flow-contact {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 14px;
+	margin-bottom: 4px;
+}
+
+.sc-flow-field {
+	flex: 1 1 200px;
+	display: flex;
+	flex-direction: column;
+	gap: 5px;
+}
+
+/* The service address is longer than a name/email/phone field is worth
+   wrapping mid-word — it gets its own full-width row. */
+.sc-flow-field--full {
+	flex: 1 1 100%;
+}
+
+.sc-flow-field label {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--sc-w-muted-text, #64748b);
+}
+
+.sc-flow-input {
+	padding: 9px 12px;
+	border: 1px solid var(--sc-w-border, #e2e8f0);
+	border-radius: var(--sc-w-radius-md);
+	font-size: 13.5px;
+	background: var(--sc-w-surface, #ffffff);
+	color: var(--sc-w-text, #0f172a);
+	transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.sc-flow-input:focus {
+	outline: none;
+	border-color: var(--sc-w-accent, #4f46e5);
+	box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+
+.sc-flow-pay-btn {
+	width: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	margin-top: 18px;
+	padding: 14px 20px;
+	border: none;
+	border-radius: var(--sc-w-radius-md);
+	background: var(--sc-w-button-color, #4f46e5);
+	color: #ffffff;
+	font-size: 15px;
+	font-weight: 700;
+	cursor: pointer;
+	box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3);
+	transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.sc-flow-pay-btn:hover:not(:disabled) {
+	transform: translateY(-1px);
+	box-shadow: 0 6px 18px rgba(79, 70, 229, 0.38);
+}
+
+.sc-flow-pay-btn:disabled {
+	cursor: default;
+	opacity: 0.85;
+}
+
+.sc-flow-pay-btn__spinner {
+	display: none;
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	border: 2px solid rgba(255, 255, 255, 0.4);
+	border-top-color: #ffffff;
+}
+
+.sc-flow-pay-btn.is-loading .sc-flow-pay-btn__spinner {
+	display: inline-block;
+	animation: sc-flow-spin 0.7s linear infinite;
+}
+
+.sc-flow-pay-btn.is-loading .sc-flow-pay-btn__label::after {
+	content: '…';
+}
+
+@keyframes sc-flow-spin {
+	to { transform: rotate(360deg); }
+}
+
+/* Step 4: thank you */
+
+.sc-flow-panel--thankyou {
+	text-align: center;
+	padding: 20px 0 4px;
+}
+
+.sc-flow-thankyou__icon {
+	width: 72px;
+	height: 72px;
+	margin: 0 auto 18px;
+	border-radius: 50%;
+	background: #dcfce7;
+	color: #16a34a;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 34px;
+	font-weight: 700;
+	animation: sc-flow-pop-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes sc-flow-pop-in {
+	from { opacity: 0; transform: scale(0.5); }
+	to { opacity: 1; transform: scale(1); }
+}
+
+.sc-flow-thankyou__message {
+	margin: 0 0 18px;
+	font-size: 14.5px;
+	color: var(--sc-w-text, #0f172a);
+}
+
+.sc-flow-thankyou__details {
+	max-width: 320px;
+	margin: 0 auto 16px;
+	text-align: left;
+	background: var(--sc-w-background, #f8fafc);
+	border: 1px solid var(--sc-w-border, #e2e8f0);
+	border-radius: var(--sc-w-radius-md);
+	padding: 14px 16px;
+}
+
+.sc-flow-thankyou__row {
+	display: flex;
+	justify-content: space-between;
+	padding: 4px 0;
+	font-size: 13.5px;
+	color: var(--sc-w-text, #0f172a);
+}
+
+.sc-flow-thankyou__note {
+	max-width: 360px;
+	margin: 0 auto;
+	font-size: 12px;
+	color: var(--sc-w-muted-text, #64748b);
+}
+
+/* Footer nav */
+
+.sc-flow-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-top: 24px;
+	padding-top: 20px;
+	border-top: 1px solid var(--sc-w-border, #e2e8f0);
+}
+
+.sc-flow-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 10px 20px;
+	border-radius: var(--sc-w-radius-md);
+	border: 1px solid transparent;
+	font-size: 13.5px;
+	font-weight: 700;
+	cursor: pointer;
+	transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.sc-flow-btn--primary {
+	background: var(--sc-w-button-color, #4f46e5);
+	border-color: var(--sc-w-button-color, #4f46e5);
+	color: #ffffff;
+}
+
+.sc-flow-btn--primary:hover {
+	transform: translateY(-1px);
+}
+
+/* Alone in the footer (step 4) — auto margins center it regardless of the
+   footer's justify-content: space-between, which only matters when there
+   are two items (Back + Continue). */
+.sc-flow-btn--secondary {
+	background: var(--sc-w-button-color, #4f46e5);
+	border-color: var(--sc-w-button-color, #4f46e5);
+	color: #ffffff;
+	margin: 0 auto;
+}
+
+.sc-flow-btn--ghost {
+	background: transparent;
+	border-color: var(--sc-w-border, #e2e8f0);
+	color: var(--sc-w-text, #0f172a);
+}
+
+.sc-flow-btn--ghost:hover {
+	background: var(--sc-w-hover-bg, #eef2ff);
+}

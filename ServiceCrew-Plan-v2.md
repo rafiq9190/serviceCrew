@@ -39,10 +39,12 @@ This revision keeps every locked decision from the earlier plan (file/class nami
 
 ### Services and pricing
 - Service → sub-services (components) with required flag.
-- A component can have a **quantity counter** (− / +): min, max, default, unit price, unit duration. Total = unit × quantity for both price and time.
-- Each service has **crew needed** (default 1), adjustable per booking.
-- **Quantity discounts:** admin-set tiers per component (e.g. 3 or more → 10% off per unit, or fixed amount).
+- A leaf service's own price can be **flat or per-unit** (unit label + min/max/default quantity chosen by the customer, e.g. "$30 per room"); total = unit price × quantity. A service with sub-services has no price of its own — it works as a category only.
+- A component (add-on) can have a **quantity counter** (− / +): min, max, default, unit price, unit duration. Total = unit × quantity for both price and time. No per-add-on discount tiers — see below.
+- **Crew needed is decided at booking/dispatch time, never on the service.** The admin has no way to know how many crew a job needs until a real booking exists; it lives only on the booking record (`sc_bookings.crew_needed`, Phase 1b-2/1c), not as a service field.
+- **Discounts are whole-booking only, never per-service or per-add-on:** the admin sets advance-payment tiers (percent paid now → discount) in a dedicated Discounts settings screen, independent of any specific service.
 - All price maths runs on the server (`POST /calculate-price`); the browser never duplicates the formula.
+- Services are managed through a custom REST-backed admin app (`class-service-crew-services-controller.php` + `class-service-crew-admin-app.php`), not the native post editor — `sc_service` remains a CPT for storage/hierarchy but has `show_ui => false`.
 
 ### Scheduling and capacity
 - Admin sets weekly business hours (default Monday–Friday, 9 to 6), holidays / closed dates, **arrival windows** (e.g. morning 9–12, afternoon 12–3, evening 3–6) and a **fixed travel buffer** between an employee's jobs.
@@ -124,7 +126,7 @@ Each email can be switched on/off and its wording edited in Settings. No status 
 ## Revised phasing
 
 ### Phase 1a — Foundation and admin catalog
-**Builds:** database + activator/deactivator (no `sc_location`), roles, CPTs `sc_service` / `sc_crew` with meta boxes (type, address + ZIP, geocoded lat/lng, radius, photo, availability, time off), **components with quantity counters and quantity-discount tiers**, geocoding wrapper (+ cache), availability class, pricing class (pure calc: components, quantity discounts, advance-payment tiers, minimum deposit), business-hours / holidays / arrival-windows / travel-buffer / overtime / timer settings, and the **setup wizard** (below). Admin-gated Services/Crew REST controllers.
+**Builds:** database + activator/deactivator (no `sc_location`), roles, CPT `sc_crew` with meta boxes (type, address + ZIP, geocoded lat/lng, radius, photo, availability, time off), `sc_service` managed through a custom REST-backed admin app rather than meta boxes (**components with quantity counters**, no per-component discount tiers), a **Discounts settings screen** (advance-payment tiers config; applying them at checkout is Phase 1b-1), geocoding wrapper (+ cache), availability class, pricing class (pure calc: components, quantity discounts, advance-payment tiers, minimum deposit), business-hours / holidays / arrival-windows / travel-buffer / overtime / timer settings, and the **setup wizard** (below). Admin-gated Services/Crew REST controllers (Services pulled forward as the admin app's data layer).
 **Note:** crew records are metadata-only here; login provisioning arrives in 1d (`POST /crew` gains the App access behaviour, same endpoint).
 **Why first:** no dependencies; proves the riskiest schema pieces (component hierarchy with quantities, availability shape, geocoding + radius maths).
 
@@ -233,6 +235,7 @@ Customer detail shows booking history (with fulfilling people), payments and ref
 - `CLAUDE.md` — update once Phase 1a code lands.
 - `wp-plugin-dev/references/architecture.md`, `security.md`, `wp-org-guidelines.md`.
 - `class-service-crew-geocoding.php` — single choke point for the geocoding provider.
+- `class-service-crew-services-controller.php` — single choke point for validating/sanitizing service + add-on data; the custom Services admin app's only data path (`sc_service` has `show_ui => false`).
 - `class-service-crew-payments.php` and `class-service-crew-gateway-stripe.php` — single choke point for payment providers (PayPal later).
 - `class-service-crew-capacity.php` — pooled-hours date logic; pure calc, unit-tested like pricing.
 - `class-service-crew-matching.php` — suggestions only; pure calc.
@@ -240,7 +243,7 @@ Customer detail shows booking history (with fulfilling people), payments and ref
 
 ## Verification (per sub-phase gate)
 
-**1a:** tables/role exist (no `sc_location`); component hierarchy, quantity settings and quantity-discount tiers round-trip; crew record round-trips type/address/ZIP/lat-lng/radius/photo; employee radius defaults to unlimited; availability incl. split shifts and time off persist; geocoding falls back ZIP → flagged and never throws; wizard resumes after closing the tab and cannot finish without a passing address test; REST rejects anonymous/low-priv writes.
+**1a:** tables/role exist (no `sc_location`); component hierarchy and quantity settings round-trip (no per-component discount tiers — discounts are whole-booking only, via the Discounts settings screen); a service that gains a sub-service has its own price/add-ons actually cleared, not just hidden; crew record round-trips type/address/ZIP/lat-lng/radius/photo; employee radius defaults to unlimited; availability incl. split shifts and time off persist; geocoding falls back ZIP → flagged and never throws; wizard resumes after closing the tab and cannot finish without a passing address test; REST rejects anonymous/low-priv writes.
 
 **1b-1:** Stripe test-mode payment succeeds and the webhook confirms it; a bad webhook signature is rejected; duplicate webhook is idempotent; minimum deposit and tier discounts match the pricing class; partial and full refunds work and log notes; pay-page token expires and cannot be reused; secret key never appears in full in any response; emails respect on/off and edited wording.
 

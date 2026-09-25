@@ -1,0 +1,592 @@
+/**
+ * [service_crew_services] column browser. Every color is a var(--sc-w-*,
+ * fallback) so the widget looks sensible even before the admin ever visits
+ * Appearance — class-service-crew-services-shortcode.php prints the actual
+ * --sc-w-* values inline, scoped to .sc-booking-widget, from
+ * Service_Crew_Appearance::get_colors().
+ *
+ * Non-color design tokens (radius/shadow/transition scale) are declared
+ * once on .sc-booking-widget below and consumed throughout this file —
+ * see that rule's comment. Unlike colors, these have no admin UI; they're
+ * fixed so this shell and any future screen reusing it stay visually
+ * consistent.
+ */
+
+.sc-booking-widget {
+	/*
+	 * Non-color design tokens. Colors are the admin-configurable --sc-w-*
+	 * set printed inline per instance (Service_Crew_Appearance::build_color_css()
+	 * — see the file header); these are fixed sizing/motion primitives with
+	 * no admin UI, scoped here so any future screen sharing this same
+	 * .sc-booking-widget shell (Service_Crew_Booking_Shortcode's stepper is
+	 * documented to reuse it — see class-service-crew-services-shortcode.php)
+	 * inherits a consistent radius/shadow/timing scale instead of picking new
+	 * magic numbers.
+	 */
+	--sc-w-radius-lg: 12px;
+	--sc-w-radius-md: 10px;
+	--sc-w-radius-sm: 8px;
+	--sc-w-radius-xs: 6px;
+	--sc-w-radius-pill: 999px;
+	--sc-w-shadow-flyout: 0 10px 24px rgba(15, 23, 42, 0.14);
+	--sc-w-transition-fast: 0.15s ease;
+	--sc-w-transition-flyout: 0.18s ease;
+
+	font-size: 15px;
+	color: var(--sc-w-text, #0f172a);
+}
+
+.sc-booking-widget * {
+	box-sizing: border-box;
+}
+
+.sc-booking-widget-empty {
+	color: #64748b;
+}
+
+.sc-w-columns {
+	display: flex;
+	align-items: flex-start;
+	gap: 14px;
+	background: var(--sc-w-background, #f8fafc);
+	padding: 14px;
+	border-radius: var(--sc-w-radius-lg);
+	overflow-x: auto;
+}
+
+.sc-w-column {
+	background: var(--sc-w-surface, #ffffff);
+	border: 1px solid var(--sc-w-border, #e2e8f0);
+	border-radius: var(--sc-w-radius-md);
+	padding: 10px;
+	/* Equal width for all three columns: flex-basis 0 means the available
+	   row width is split purely by the (equal) flex-grow ratios below,
+	   ignoring content size; min-width is just a floor before
+	   .sc-w-columns' overflow-x: auto kicks in on narrow viewports. */
+	min-width: 240px;
+	flex: 1 1 0;
+}
+
+/* Middle-column stand-in before anything is picked — see
+   renderPlaceholderColumn() in booking-widget.js. Keeps the three-column
+   layout from the very start instead of Total stretching into this slot
+   only to snap narrower the moment a service is chosen. */
+.sc-w-placeholder {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 200px;
+	text-align: center;
+}
+
+.sc-w-placeholder__text {
+	margin: 0;
+	max-width: 220px;
+	color: var(--sc-w-muted-text, #64748b);
+	font-size: 13.5px;
+	line-height: 1.5;
+}
+
+/* Names which parent/leaf this column's rows belong to, and doubles as the
+   divider between columns the user asked for when a parent has several
+   sub-services (or a leaf has several add-ons). */
+.sc-w-column__header {
+	font-size: 11px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--sc-w-muted-text, #64748b);
+	padding: 2px 10px 10px;
+	margin-bottom: 8px;
+	border-bottom: 1px solid var(--sc-w-border, #e2e8f0);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.sc-w-row {
+	position: relative;
+	border-radius: var(--sc-w-radius-sm);
+	margin-bottom: 4px;
+	transition: background-color var(--sc-w-transition-fast), color var(--sc-w-transition-fast);
+}
+
+.sc-w-row__label {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 10px 12px;
+	cursor: pointer;
+	border-radius: var(--sc-w-radius-sm);
+}
+
+.sc-w-row:hover .sc-w-row__label {
+	background: var(--sc-w-hover-bg, #eef2ff);
+}
+
+.sc-w-row.is-selected .sc-w-row__label {
+	background: var(--sc-w-selected-bg, #4f46e5);
+	color: var(--sc-w-selected-text, #ffffff);
+	font-weight: 600;
+}
+
+.sc-w-row__name {
+	/* Grows to fill the row so the type badge + arrow/added-badge that
+	   follow it stay grouped together at the row's end instead of
+	   space-between scattering three-plus items evenly across the row. */
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Row-type identifier: tells the customer what selecting this row reveals
+   before they click — a category's "Sub-services" pairs with the chevron
+   below; a leaf that carries add-ons gets its own badge since (by request)
+   it no longer shows those add-ons in a hover preview. */
+.sc-w-row__type-badge {
+	flex: 0 0 auto;
+	font-size: 10px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.03em;
+	padding: 2px 7px;
+	border-radius: var(--sc-w-radius-pill);
+}
+
+.sc-w-row__type-badge--sub {
+	background: var(--sc-w-hover-bg, #eef2ff);
+	color: var(--sc-w-accent, #4f46e5);
+}
+
+.sc-w-row__type-badge--addon {
+	background: #fef3c7;
+	color: #92400e;
+}
+
+.sc-w-row.is-selected .sc-w-row__type-badge {
+	background: rgba(255, 255, 255, 0.28);
+	color: var(--sc-w-selected-text, #ffffff);
+}
+
+/* Prominent "this has sub-services" affordance: a filled, circular chevron
+   button — deliberately not a faint hint, so a category reads as
+   clickable/drillable at a glance, not just on hover. */
+
+.sc-w-row__arrow {
+	flex: 0 0 auto;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 20px;
+	height: 20px;
+	border-radius: 50%;
+	background: var(--sc-w-hover-bg, #eef2ff);
+	color: var(--sc-w-accent, #4f46e5);
+	font-size: 15px;
+	font-weight: 700;
+	line-height: 1;
+	transition: transform var(--sc-w-transition-fast), background-color var(--sc-w-transition-fast), color var(--sc-w-transition-fast);
+}
+
+.sc-w-row:hover .sc-w-row__arrow {
+	transform: translateX(2px);
+}
+
+.sc-w-row.is-selected .sc-w-row__arrow {
+	background: rgba(255, 255, 255, 0.28);
+	color: var(--sc-w-selected-text, #ffffff);
+	transform: translateX(2px);
+}
+
+/* Hover preview flyout: pure CSS animation, no state change */
+
+.sc-w-preview {
+	position: absolute;
+	left: calc(100% + 8px);
+	top: 0;
+	z-index: 20;
+	min-width: 200px;
+	max-width: 280px;
+	/* The flyout now shows the whole sub-tree at once (see buildPreviewTree()
+	   in booking-widget.js), which can run tall for a deeply-nested catalog —
+	   capped and scrollable so it never grows past a sensible height. */
+	max-height: 320px;
+	overflow-y: auto;
+	background: var(--sc-w-surface, #ffffff);
+	border: 1px solid var(--sc-w-border, #e2e8f0);
+	border-radius: var(--sc-w-radius-sm);
+	box-shadow: var(--sc-w-shadow-flyout);
+	padding: 8px;
+	opacity: 0;
+	transform: translateX(-6px);
+	pointer-events: none;
+	transition: opacity var(--sc-w-transition-flyout), transform var(--sc-w-transition-flyout);
+	scrollbar-width: thin;
+	scrollbar-color: var(--sc-w-accent, #4f46e5) transparent;
+}
+
+.sc-w-preview::-webkit-scrollbar {
+	width: 6px;
+}
+
+.sc-w-preview::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.sc-w-preview::-webkit-scrollbar-thumb {
+	background: var(--sc-w-accent, #4f46e5);
+	border-radius: var(--sc-w-radius-pill);
+}
+
+.sc-w-row.is-hovering .sc-w-preview {
+	opacity: 1;
+	transform: translateX(0);
+	pointer-events: auto;
+}
+
+/* One nested level of the sub-tree, indented and left-bordered so the
+   customer can see at a glance which sub-services live under which —
+   "show it all in one hover" instead of revealing depth only on request. */
+.sc-w-preview__sublist {
+	margin: 2px 0 2px 14px;
+	padding-left: 8px;
+	border-left: 2px solid var(--sc-w-border, #e2e8f0);
+}
+
+.sc-w-preview__item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 6px 8px;
+	font-size: 13px;
+	color: var(--sc-w-muted-text, #64748b);
+	border-radius: var(--sc-w-radius-xs);
+}
+
+/* A leaf's add-on preview stays read-only (informational only — add-ons
+   aren't selectable nodes); only a category's child preview rows get the
+   pointer + hover treatment that signals "click to pick this directly". */
+.sc-w-preview__item.is-selectable {
+	cursor: pointer;
+}
+
+.sc-w-preview__item.is-selectable:hover {
+	background: var(--sc-w-hover-bg, #eef2ff);
+	color: var(--sc-w-text, #0f172a);
+}
+
+.sc-w-preview__item-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.sc-w-preview__item-arrow {
+	flex: 0 0 auto;
+	opacity: 0.6;
+	font-weight: 700;
+}
+
+.sc-w-preview__node {
+	margin-bottom: 1px;
+}
+
+/* Add-ons — expand inline under the active leaf's own row (accordion-style)
+   rather than opening a separate column. */
+
+.sc-w-row.is-expanded {
+	border-radius: var(--sc-w-radius-sm);
+	background: rgba(79, 70, 229, 0.05);
+	padding-bottom: 6px;
+}
+
+.sc-w-addons-inline {
+	margin: 0 12px 4px;
+	padding-top: 8px;
+	border-top: 1px dashed var(--sc-w-border, #e2e8f0);
+}
+
+.sc-w-row--addon {
+	padding: 8px 4px;
+}
+
+.sc-w-addon-label {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	cursor: pointer;
+}
+
+.sc-w-addon-price {
+	margin-left: auto;
+	color: var(--sc-w-muted-text, #64748b);
+	font-size: 13px;
+	white-space: nowrap;
+}
+
+.sc-w-badge {
+	display: inline-block;
+	margin-top: 6px;
+	font-size: 10.5px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--sc-w-accent, #4f46e5);
+}
+
+/* Quantity stepper */
+
+.sc-w-qty {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 12px 4px;
+}
+
+.sc-w-qty__btn {
+	/*
+	 * <button> has browser-default padding/line-height that pushes a glyph
+	 * off-center inside a fixed-size circle — display:flex + padding:0 here
+	 * centers it exactly regardless of font/line-height quirks.
+	 */
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 26px;
+	height: 26px;
+	padding: 0;
+	border-radius: 50%;
+	border: 1px solid var(--sc-w-border, #e2e8f0);
+	background: var(--sc-w-surface, #ffffff);
+	color: var(--sc-w-text, #0f172a);
+	cursor: pointer;
+	font-size: 15px;
+	line-height: 1;
+	flex: 0 0 auto;
+	transition: background-color var(--sc-w-transition-fast), border-color var(--sc-w-transition-fast), color var(--sc-w-transition-fast);
+}
+
+.sc-w-qty__btn:hover {
+	background: var(--sc-w-accent, #4f46e5);
+	border-color: var(--sc-w-accent, #4f46e5);
+	color: #fff;
+}
+
+/* At the min/max boundary — visually inert so it reads as "you've reached
+   the limit", not as a broken button. */
+.sc-w-qty__btn.is-disabled {
+	cursor: default;
+	opacity: 0.35;
+}
+
+.sc-w-qty__btn.is-disabled:hover {
+	background: var(--sc-w-surface, #ffffff);
+	border-color: var(--sc-w-border, #e2e8f0);
+	color: var(--sc-w-text, #0f172a);
+}
+
+.sc-w-qty__value {
+	min-width: 22px;
+	text-align: center;
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+}
+
+.sc-w-qty__label {
+	color: var(--sc-w-muted-text, #64748b);
+	font-size: 12.5px;
+}
+
+/* Total column */
+
+.sc-w-total {
+	background: var(--sc-w-total-bg, #0f172a);
+	color: var(--sc-w-total-text, #ffffff);
+	border-left: 4px solid var(--sc-w-total-accent, #818cf8);
+	min-width: 240px;
+	/* Same flex-basis-0 equal-width split as .sc-w-column — all three
+	   columns (including when there are only two: Services + Total) end up
+	   the same width. */
+	flex: 1 1 0;
+	max-height: 70vh;
+	/* Column layout so the summary footer can sit outside the scrolling
+	   area below — a "sticky via flexbox" footer that's always visible
+	   regardless of how many cart cards there are, no position:sticky
+	   quirks with the overflow ancestor involved. */
+	display: flex;
+	flex-direction: column;
+	padding: 0;
+}
+
+.sc-w-total__scroll {
+	flex: 1 1 auto;
+	/* Required alongside flex:1 1 auto for a flex child to actually shrink
+	   and scroll instead of overflowing its flex row — the classic flexbox
+	   scroll-child gotcha (min-height defaults to auto/content-size). */
+	min-height: 0;
+	overflow-y: auto;
+	/* Same 10px inset .sc-w-column used to provide before .sc-w-total
+	   switched to padding:0 for the flex-column summary-footer layout. */
+	padding: 10px;
+	/* Firefox: thin, accent-colored thumb on the dark total-card surface
+	   instead of the default (light, chunky-on-dark) OS scrollbar. */
+	scrollbar-width: thin;
+	scrollbar-color: var(--sc-w-total-accent, #818cf8) rgba(255, 255, 255, 0.06);
+}
+
+/* Chromium/Safari/Edge equivalent of the Firefox rule above — no shorthand
+   property covers both engines, so both are declared. */
+.sc-w-total__scroll::-webkit-scrollbar {
+	width: 8px;
+}
+
+.sc-w-total__scroll::-webkit-scrollbar-track {
+	background: rgba(255, 255, 255, 0.06);
+	border-radius: var(--sc-w-radius-pill);
+}
+
+.sc-w-total__scroll::-webkit-scrollbar-thumb {
+	background: var(--sc-w-total-accent, #818cf8);
+	border-radius: var(--sc-w-radius-pill);
+}
+
+.sc-w-total__scroll::-webkit-scrollbar-thumb:hover {
+	background: var(--sc-w-total-text, #ffffff);
+}
+
+/* One card per selection — committed cart items plus the one currently
+   being configured (.is-active), so nothing you've already picked
+   disappears when you go pick something else. */
+.sc-w-cart-card {
+	background: rgba(255, 255, 255, 0.06);
+	border: 1px solid rgba(255, 255, 255, 0.12);
+	border-radius: var(--sc-w-radius-sm);
+	padding: 10px;
+	margin: 0 6px 10px;
+}
+
+.sc-w-cart-card.is-active {
+	border-color: var(--sc-w-total-accent, #818cf8);
+	box-shadow: 0 0 0 1px var(--sc-w-total-accent, #818cf8);
+}
+
+.sc-w-cart-card__header {
+	display: flex;
+	align-items: baseline;
+	gap: 6px;
+	margin-bottom: 4px;
+}
+
+.sc-w-cart-card__parent {
+	font-size: 10.5px;
+	text-transform: uppercase;
+	letter-spacing: 0.03em;
+	opacity: 0.6;
+	white-space: nowrap;
+}
+
+.sc-w-cart-card__name {
+	font-weight: 700;
+	flex: 1 1 auto;
+}
+
+.sc-w-cart-card__remove {
+	background: none;
+	border: none;
+	color: inherit;
+	opacity: 0.6;
+	cursor: pointer;
+	font-size: 16px;
+	line-height: 1;
+	padding: 0 2px;
+}
+
+.sc-w-cart-card__remove:hover {
+	opacity: 1;
+}
+
+/* "Added" badge shown next to a leaf row still visible in the browsing
+   columns, once it has a committed cart card of its own. */
+.sc-w-row__added {
+	flex: 0 0 auto;
+	font-size: 10.5px;
+	font-weight: 700;
+	color: var(--sc-w-accent, #4f46e5);
+}
+
+.sc-w-total__heading {
+	margin: 4px 6px 10px;
+	font-size: 14px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	opacity: 0.75;
+}
+
+.sc-w-total__empty {
+	padding: 0 6px;
+	opacity: 0.75;
+	font-size: 13.5px;
+}
+
+.sc-w-total__line {
+	display: flex;
+	justify-content: space-between;
+	gap: 10px;
+	padding: 6px 6px;
+	font-size: 13px;
+	opacity: 0.9;
+}
+
+/* Sticky summary footer: sits outside .sc-w-total__scroll (see .sc-w-total's
+   flex-column layout above), so it's always visible — the whole point of
+   this card being the running total — no matter how many cart cards the
+   customer has scrolled past above it. */
+
+.sc-w-total__summary {
+	flex: 0 0 auto;
+	padding: 12px 16px 14px;
+	background: rgba(0, 0, 0, 0.14);
+	border-top: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.sc-w-total__row {
+	display: flex;
+	justify-content: space-between;
+	gap: 10px;
+	padding: 3px 0;
+	font-size: 13px;
+	opacity: 0.85;
+}
+
+/* Hardcoded, not a --sc-w-* token: this summary always sits on
+   --sc-w-total-bg's dark surface regardless of the admin's light-mode
+   palette (same reasoning as the toast colors in app.css), so a savings
+   callout needs its own fixed, sufficiently-light-on-dark green. */
+.sc-w-total__row--discount {
+	color: #86efac;
+	opacity: 1;
+	font-weight: 600;
+}
+
+/* Same "hardcoded, always on the dark total-card surface" reasoning as
+   .sc-w-total__row--discount above — the minimum-to-book line gets the
+   accent color instead of green since it's informational, not a saving. */
+.sc-w-total__row--deposit {
+	color: var(--sc-w-total-accent, #818cf8);
+	opacity: 1;
+	font-weight: 600;
+}
+
+.sc-w-total__grand {
+	display: flex;
+	justify-content: space-between;
+	margin-top: 6px;
+	padding-top: 8px;
+	border-top: 1px solid rgba(255, 255, 255, 0.2);
+	font-size: 17px;
+	font-weight: 700;
+}

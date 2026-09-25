@@ -23,11 +23,12 @@ if ( ! defined( 'ABSPATH' ) ) {
  * wp_users account, Application Passwords) arrives in Phase 1d and attaches
  * to this same CPT rather than replacing it.
  *
- * Geocoding (lat/lng auto-populated from address+ZIP) is a separate,
- * not-yet-built task (class-service-crew-geocoding.php). Lat/lng are plain
- * editable meta fields here so the record shape round-trips end to end;
- * once the geocoding wrapper exists it hooks into save_post_sc_crew to fill
- * them in rather than replacing this meta box.
+ * Geocoding (lat/lng auto-populated from address+ZIP) lives in
+ * class-service-crew-geocoding.php, which hooks into save_post_sc_crew at a
+ * later priority than save_meta_box() below to fill lat/lng in rather than
+ * replacing this meta box; the fields stay plain and editable here so a
+ * manual correction survives an unrelated re-save (see geocode_on_save()'s
+ * address-hash check).
  */
 class Service_Crew_Crew {
 
