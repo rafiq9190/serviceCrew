@@ -38,6 +38,26 @@ class Service_Crew_Activator {
 	}
 
 	/**
+	 * Schema migrations for a site that's already active on an older
+	 * SERVICE_CREW_DB_VERSION — activate() only ever runs once, on
+	 * activation, so a later version bump needs its own seam to actually
+	 * reach an already-installed site. Hooked on admin_init (not
+	 * plugins_loaded) in service-crew.php, so this never runs on the public,
+	 * unauthenticated booking-checkout endpoint. dbDelta() is additive/
+	 * idempotent, so re-running create_tables() here is always safe.
+	 *
+	 * @return void
+	 */
+	public static function maybe_upgrade() {
+		if ( get_option( 'sc_db_version' ) === SERVICE_CREW_DB_VERSION ) {
+			return;
+		}
+
+		self::create_tables();
+		update_option( 'sc_db_version', SERVICE_CREW_DB_VERSION );
+	}
+
+	/**
 	 * Creates (or upgrades) every ServiceCrew custom table via dbDelta().
 	 *
 	 * @return void
@@ -48,8 +68,10 @@ class Service_Crew_Activator {
 		global $wpdb;
 		$charset_collate = $wpdb->get_charset_collate();
 
+		dbDelta( self::customers_sql( $wpdb, $charset_collate ) );
 		dbDelta( self::bookings_sql( $wpdb, $charset_collate ) );
 		dbDelta( self::booking_components_sql( $wpdb, $charset_collate ) );
+		dbDelta( self::booking_services_sql( $wpdb, $charset_collate ) );
 		dbDelta( self::booking_assignments_sql( $wpdb, $charset_collate ) );
 		dbDelta( self::payments_sql( $wpdb, $charset_collate ) );
 		dbDelta( self::refunds_sql( $wpdb, $charset_collate ) );
@@ -57,6 +79,7 @@ class Service_Crew_Activator {
 		dbDelta( self::closed_dates_sql( $wpdb, $charset_collate ) );
 		dbDelta( self::overtime_sql( $wpdb, $charset_collate ) );
 		dbDelta( self::notes_sql( $wpdb, $charset_collate ) );
+		dbDelta( self::notifications_sql( $wpdb, $charset_collate ) );
 	}
 
 	/**
@@ -91,6 +114,41 @@ class Service_Crew_Activator {
 	}
 
 	/**
+	 * sc_customers — one row per unique email address, populated by
+	 * class-service-crew-customers.php's find-or-create as each booking/quote
+	 * is created. email is the identity key (unique), not id — a customer who
+	 * books twice with the same email resolves to the same row regardless of
+	 * what name/phone they typed the second time.
+	 *
+	 * marketing_opt_in is captured for a future promotional-email feature
+	 * (not built yet — there is no sender/campaign UI anywhere in this
+	 * plugin) so consent is never lost waiting on that feature to exist.
+	 * Sticky once true: Service_Crew_Customers::find_or_create() never resets
+	 * it back to 0, since there is no unsubscribe flow yet that could
+	 * legitimately re-grant it.
+	 *
+	 * @param wpdb   $wpdb             WordPress database access object.
+	 * @param string $charset_collate  Charset/collation clause from $wpdb->get_charset_collate().
+	 * @return string CREATE TABLE statement for dbDelta().
+	 */
+	private static function customers_sql( $wpdb, $charset_collate ) {
+		$table_name = $wpdb->prefix . 'sc_customers';
+
+		return "CREATE TABLE {$table_name} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			name varchar(191) NOT NULL DEFAULT '',
+			email varchar(191) NOT NULL DEFAULT '',
+			phone varchar(50) NOT NULL DEFAULT '',
+			marketing_opt_in tinyint(1) unsigned NOT NULL DEFAULT 0,
+			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY  (id),
+			UNIQUE KEY email (email),
+			KEY marketing_opt_in (marketing_opt_in)
+		) {$charset_collate};";
+	}
+
+	/**
 	 * sc_bookings — one row per instant booking or quote request.
 	 *
 	 * Shares one table across both booking sources ("source" column) because
@@ -105,11 +163,12 @@ class Service_Crew_Activator {
 	 * and the board/board filters need to query on them directly.
 	 *
 	 * service_id and customer_id are nullable: a quote request has no
-	 * service until the admin sets one, and there is no sc_customers table
-	 * yet (arrives in Phase 1b-2's class-service-crew-customers.php) — until
-	 * then customer_name/email/phone on this row are the source of truth,
-	 * and customer_id is reserved for that class to populate later via
-	 * find-or-create by email.
+	 * service until the admin sets one, and customer_id is only populated
+	 * once class-service-crew-customers.php's find-or-create runs (wired into
+	 * both the instant-booking and quote creation paths) — customer_name/
+	 * email/phone on this row remain the point-in-time source of truth for
+	 * what the job was actually billed/contacted as either way, never
+	 * overwritten by the sc_customers row they resolve to.
 	 *
 	 * @param wpdb   $wpdb             WordPress database access object.
 	 * @param string $charset_collate  Charset/collation clause from $wpdb->get_charset_collate().
@@ -197,10 +256,55 @@ class Service_Crew_Activator {
 			line_subtotal decimal(10,2) NOT NULL DEFAULT 0.00,
 			quantity_discount_amount decimal(10,2) NOT NULL DEFAULT 0.00,
 			line_total decimal(10,2) NOT NULL DEFAULT 0.00,
+			booking_service_id bigint(20) unsigned DEFAULT NULL,
 			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY  (id),
 			KEY booking_id (booking_id),
-			KEY component_id (component_id)
+			KEY component_id (component_id),
+			KEY booking_service_id (booking_service_id)
+		) {$charset_collate};";
+	}
+
+	/**
+	 * sc_booking_services — one row per top-level service selected on a
+	 * booking, for every instant booking (even a single-service one, so
+	 * there is exactly one code path rather than a single-vs-multi branch).
+	 * Whether more than one row per booking is ever allowed is an admin
+	 * setting (Service_Crew_Settings' allow_multiple_services), enforced in
+	 * Service_Crew_Bookings::create_instant_booking(), not by this schema.
+	 *
+	 * All fields here are snapshots, same "immutable at booking time" rule as
+	 * sc_booking_components: unit_price is the raw per-service unit price
+	 * (pre-quantity-multiplication); line_subtotal is already multiplied by
+	 * quantity (Service_Crew_Pricing::calculate_service_line()'s price) and
+	 * does not include this service's own add-ons, which get their own
+	 * sc_booking_components rows linked back via booking_service_id.
+	 *
+	 * sc_bookings.service_id is unchanged by this table's existence — it
+	 * still always points at the first selected item, so the admin bookings
+	 * list's existing single-service JOIN needs no changes; this table is
+	 * the authoritative full breakdown alongside it.
+	 *
+	 * @param wpdb   $wpdb             WordPress database access object.
+	 * @param string $charset_collate  Charset/collation clause from $wpdb->get_charset_collate().
+	 * @return string CREATE TABLE statement for dbDelta().
+	 */
+	private static function booking_services_sql( $wpdb, $charset_collate ) {
+		$table_name = $wpdb->prefix . 'sc_booking_services';
+
+		return "CREATE TABLE {$table_name} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			booking_id bigint(20) unsigned NOT NULL,
+			service_id bigint(20) unsigned NOT NULL,
+			service_name varchar(191) NOT NULL DEFAULT '',
+			quantity smallint(5) unsigned NOT NULL DEFAULT 1,
+			unit_price decimal(10,2) NOT NULL DEFAULT 0.00,
+			unit_duration_minutes smallint(5) unsigned NOT NULL DEFAULT 0,
+			line_subtotal decimal(10,2) NOT NULL DEFAULT 0.00,
+			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY  (id),
+			KEY booking_id (booking_id),
+			KEY service_id (service_id)
 		) {$charset_collate};";
 	}
 
@@ -219,6 +323,13 @@ class Service_Crew_Activator {
 	 * one) but the plan requires it be set before a vendor can be assigned —
 	 * that rule belongs in the assignments class (Phase 1c), not here.
 	 *
+	 * status_token_hash/status_token_expires_at back the lead's no-login job
+	 * status link (class-service-crew-job-status-page.php, V1's email-based
+	 * stand-in for the deferred crew PWA — see ServiceCrew-Plan-v2.md's "V1
+	 * launch scope") — same "stored hashed, single-purpose, expires" rule as
+	 * every other token in this plugin (see Service_Crew_Payments). Only the
+	 * lead's row ever gets one; a member's row stays null in both columns.
+	 *
 	 * @param wpdb   $wpdb             WordPress database access object.
 	 * @param string $charset_collate  Charset/collation clause from $wpdb->get_charset_collate().
 	 * @return string CREATE TABLE statement for dbDelta().
@@ -236,11 +347,14 @@ class Service_Crew_Activator {
 			agreed_amount decimal(10,2) DEFAULT NULL,
 			assigned_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			responded_at datetime DEFAULT NULL,
+			status_token_hash varchar(64) DEFAULT NULL,
+			status_token_expires_at datetime DEFAULT NULL,
 			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY  (id),
 			KEY booking_id (booking_id),
 			KEY crew_id (crew_id),
-			KEY status (status)
+			KEY status (status),
+			UNIQUE KEY status_token_hash (status_token_hash)
 		) {$charset_collate};";
 	}
 
@@ -423,6 +537,33 @@ class Service_Crew_Activator {
 			PRIMARY KEY  (id),
 			KEY booking_id (booking_id),
 			KEY author_id (author_id)
+		) {$charset_collate};";
+	}
+
+	/**
+	 * sc_notifications — the admin bell/menu-badge feed. One row per event
+	 * Service_Crew_Notifications listens for (an instant booking confirmed,
+	 * a quote submitted); message is a pre-rendered snapshot at creation
+	 * time, same "snapshot" convention as sc_booking_components/
+	 * sc_booking_services, so a read never needs to re-join other tables.
+	 *
+	 * @param wpdb   $wpdb             WordPress database access object.
+	 * @param string $charset_collate  Charset/collation clause from $wpdb->get_charset_collate().
+	 * @return string CREATE TABLE statement for dbDelta().
+	 */
+	private static function notifications_sql( $wpdb, $charset_collate ) {
+		$table_name = $wpdb->prefix . 'sc_notifications';
+
+		return "CREATE TABLE {$table_name} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			type varchar(30) NOT NULL DEFAULT '',
+			booking_id bigint(20) unsigned NOT NULL,
+			message varchar(255) NOT NULL DEFAULT '',
+			is_read tinyint(1) unsigned NOT NULL DEFAULT 0,
+			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY  (id),
+			KEY is_read (is_read),
+			KEY booking_id (booking_id)
 		) {$charset_collate};";
 	}
 }

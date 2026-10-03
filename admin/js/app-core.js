@@ -64,6 +64,31 @@ window.SCApp = ( function () {
 		} );
 	}
 
+	/**
+	 * A read-only text input plus a "Copy" button — clipboard API where
+	 * available, falling back to document.execCommand('copy') (still needed
+	 * for wp-admin's minimum-supported-browser set).
+	 */
+	function buildCopyField( value ) {
+		var input = el( 'input', { type: 'text', class: 'sc-input', value: value, readonly: 'readonly' } );
+		var button = el( 'button', {
+			type: 'button',
+			class: 'sc-btn sc-btn--secondary',
+			text: 'Copy',
+			onClick: function () {
+				input.select();
+				if ( navigator.clipboard && navigator.clipboard.writeText ) {
+					navigator.clipboard.writeText( input.value ).then( function () { toast( 'Copied.' ); } );
+				} else {
+					document.execCommand( 'copy' );
+					toast( 'Copied.' );
+				}
+			},
+		} );
+
+		return el( 'div', { class: 'sc-copy-field' }, [ input, button ] );
+	}
+
 	var WEEKDAYS = [ 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday' ];
 	var WEEKDAY_LABELS = {
 		monday: 'Monday',
@@ -277,10 +302,126 @@ window.SCApp = ( function () {
 		return card;
 	}
 
+	/**
+	 * "3 minutes ago" / "2 hours ago" / "5 days ago" for a MySQL DATETIME
+	 * string ("YYYY-MM-DD HH:MM:SS", UTC) — the notification bell's only
+	 * consumer, kept local to this file rather than exported since nothing
+	 * else needs it yet.
+	 */
+	function timeAgo( mysqlDatetime ) {
+		if ( ! mysqlDatetime ) {
+			return '';
+		}
+
+		var then = new Date( mysqlDatetime.replace( ' ', 'T' ) + 'Z' );
+
+		if ( isNaN( then.getTime() ) ) {
+			return mysqlDatetime;
+		}
+
+		var seconds = Math.max( 0, Math.floor( ( Date.now() - then.getTime() ) / 1000 ) );
+
+		if ( seconds < 60 ) {
+			return 'just now';
+		}
+
+		var units = [
+			[ 86400, 'day' ],
+			[ 3600, 'hour' ],
+			[ 60, 'minute' ],
+		];
+
+		for ( var i = 0; i < units.length; i++ ) {
+			var amount = Math.floor( seconds / units[ i ][ 0 ] );
+			if ( amount >= 1 ) {
+				return amount + ' ' + units[ i ][ 1 ] + ( amount > 1 ? 's' : '' ) + ' ago';
+			}
+		}
+
+		return 'just now';
+	}
+
+	/**
+	 * Notification bell: badge count + dropdown, shared by every ServiceCrew
+	 * admin screen (this file is the only script guaranteed loaded on all of
+	 * them — see Service_Crew_Admin_App::render_header()'s static markup this
+	 * wires up). Runs unconditionally on DOMContentLoaded; no-ops if the bell
+	 * isn't on the page (the plain top-level landing page doesn't render it).
+	 */
+	function initBell() {
+		var bell = document.querySelector( '.sc-bell' );
+
+		if ( ! bell ) {
+			return;
+		}
+
+		var badge    = bell.querySelector( '.sc-bell__badge' );
+		var dropdown = document.querySelector( '.sc-bell-dropdown' );
+		var list     = dropdown.querySelector( '.sc-bell-dropdown__list' );
+		var isOpen   = false;
+
+		function renderCount( count ) {
+			if ( count > 0 ) {
+				badge.textContent = count > 99 ? '99+' : String( count );
+				badge.style.display = '';
+			} else {
+				badge.style.display = 'none';
+			}
+		}
+
+		function renderList( items ) {
+			list.innerHTML = '';
+
+			if ( ! items.length ) {
+				list.appendChild( el( 'p', { class: 'sc-bell-dropdown__empty', text: 'No notifications yet.' } ) );
+				return;
+			}
+
+			items.forEach( function ( item ) {
+				list.appendChild( el( 'div', { class: 'sc-bell-dropdown__item' }, [
+					el( 'p', { class: 'sc-bell-dropdown__message', text: item.message } ),
+					el( 'span', { class: 'sc-bell-dropdown__time', text: timeAgo( item.created_at ) } ),
+				] ) );
+			} );
+		}
+
+		function loadCount() {
+			request( { path: '/service-crew/v1/notifications' } ).then( function ( data ) {
+				renderCount( data.count );
+				renderList( data.items || [] );
+			} );
+		}
+
+		bell.addEventListener( 'click', function ( event ) {
+			event.stopPropagation();
+			isOpen = ! isOpen;
+			dropdown.hidden = ! isOpen;
+
+			if ( isOpen ) {
+				request( { path: '/service-crew/v1/notifications/mark-all-read', method: 'POST' } ).then( function () {
+					renderCount( 0 );
+				} );
+			}
+		} );
+
+		document.addEventListener( 'click', function ( event ) {
+			if ( isOpen && ! bell.contains( event.target ) && ! dropdown.contains( event.target ) ) {
+				isOpen = false;
+				dropdown.hidden = true;
+			}
+		} );
+
+		loadCount();
+		setInterval( loadCount, 60000 );
+	}
+
+	document.addEventListener( 'DOMContentLoaded', initBell );
+
 	return {
 		el: el,
 		toast: toast,
 		request: request,
+		buildCopyField: buildCopyField,
 		WEEKDAYS: WEEKDAYS,
 		WEEKDAY_LABELS: WEEKDAY_LABELS,
 		sectionCard: sectionCard,

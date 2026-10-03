@@ -1,16 +1,26 @@
 /**
- * [service_crew_booking] four-step animated flow: Service -> Date & Time ->
- * Payment -> Thank you. Reads its data from the
+ * [service_crew_booking]: two top-level tabs — "Instant Booking" (the
+ * four-step animated flow: Service -> Date & Time -> Payment -> Thank you)
+ * and "Request a Quote" (the plan's out-of-band-quote form: photos, title,
+ * description, preferred date/window, address, contact — no service
+ * selection, no payment). Reads its data from the
  * <script type="application/json" class="sc-booking-flow-data"> tag
  * class-service-crew-booking-shortcode.php embeds in each .sc-booking-flow
  * instance — the same tree/pricing payload [service_crew_services] uses,
- * plus scheduling settings (business hours, holidays, arrival windows) for
- * the Date & Time step.
+ * plus scheduling settings (business hours, holidays, arrival windows) both
+ * tabs draw from.
  *
- * All four step panels are built and mounted up front; navigating between
- * them only toggles which one is visible (no panel is ever torn down and
- * rebuilt), so nothing a customer has already entered — a date pick, their
- * name/email — is lost by stepping back and forward.
+ * All four step panels of the Instant Booking tab are built and mounted up
+ * front; navigating between them only toggles which one is visible (no panel
+ * is ever torn down and rebuilt), so nothing a customer has already entered —
+ * a date pick, their name/email — is lost by stepping back and forward.
+ *
+ * The quote form posts multipart/form-data (for its optional photo uploads)
+ * to POST /service-crew/v1/quotes (class-service-crew-quotes-controller.php,
+ * class-service-crew-quotes.php) — a separate, narrower path from the
+ * instant-booking POST below it: no service/pricing, no Stripe redirect, and
+ * the server does its own rate-limiting/honeypot/photo-hardening rather than
+ * trusting anything from the client.
  *
  * Step 3 posts to the real `POST /bookings` endpoint
  * (class-service-crew-bookings-controller.php) and redirects to a real
@@ -121,26 +131,88 @@
 			cart: [],
 			selectedDate: null,
 			selectedWindow: null,
+			isEmergency: false,
+			bookedWindows: [],
 			customerName: '',
 			customerEmail: '',
 			customerPhone: '',
 			customerAddress: '',
 			customerZip: '',
+			marketingOptIn: false,
 		};
+
+		/**
+		 * Client-side estimate of Service_Crew_Pricing::calculate_emergency_surcharge()
+		 * — 'flat' is a fixed fee, 'percent' is a share of the already
+		 * discounted+taxed total. The server recomputes this from scratch
+		 * against Service_Crew_Settings when the booking is actually created.
+		 *
+		 * @param {number} amount Discounted, taxed total to base a percentage surcharge on.
+		 * @return {number}
+		 */
+		function computeEmergencySurcharge( amount ) {
+			var surcharge = scheduling.emergency_surcharge || { enabled: false, type: 'percent', amount: 0 };
+
+			if ( ! surcharge.enabled ) {
+				return 0;
+			}
+
+			return 'flat' === surcharge.type
+				? ( Number( surcharge.amount ) || 0 )
+				: amount * ( ( Number( surcharge.amount ) || 0 ) / 100 );
+		}
 
 		var widgetApi     = null;
 		var paymentPanel  = null;
 		var thankYouPanel = null;
 
-		var shell    = el( 'div', { class: 'sc-flow-shell' } );
-		var stepper  = el( 'div', { class: 'sc-flow-stepper' } );
-		var panelsEl = el( 'div', { class: 'sc-flow-panels' } );
-		var footer   = el( 'div', { class: 'sc-flow-footer' } );
+		var shell           = el( 'div', { class: 'sc-flow-shell' } );
+		var stepper         = el( 'div', { class: 'sc-flow-stepper' } );
+		// Mobile-only (see booking-flow.css): the stepper's circles shrink and
+		// its text labels hide under 600px, replaced by this single line
+		// naming the current step — renderStepper() below keeps it in sync.
+		var stepperCaption  = el( 'div', { class: 'sc-flow-stepper__caption' } );
+		var panelsEl        = el( 'div', { class: 'sc-flow-panels' } );
+		var footer          = el( 'div', { class: 'sc-flow-footer' } );
 
 		shell.appendChild( stepper );
+		shell.appendChild( stepperCaption );
 		shell.appendChild( panelsEl );
 		shell.appendChild( footer );
-		root.appendChild( shell );
+
+		/* ---- Tabs: Instant Booking / Request a Quote ------------------- */
+
+		var tabsNav        = el( 'div', { class: 'sc-flow-tabs', role: 'tablist' } );
+		var tabContentWrap = el( 'div', { class: 'sc-flow-tab-panels' } );
+		var instantTabPane = el( 'div', { class: 'sc-flow-tab-panel is-active' } );
+		var quoteTabPane   = el( 'div', { class: 'sc-flow-tab-panel' } );
+
+		var instantTabBtn = el( 'button', { type: 'button', class: 'sc-flow-tab is-active', text: 'Instant Booking' } );
+		var quoteTabBtn   = el( 'button', { type: 'button', class: 'sc-flow-tab', text: 'Request a Quote' } );
+
+		function activateTab( name ) {
+			var isInstant = 'instant' === name;
+
+			instantTabBtn.classList.toggle( 'is-active', isInstant );
+			quoteTabBtn.classList.toggle( 'is-active', ! isInstant );
+			instantTabPane.classList.toggle( 'is-active', isInstant );
+			quoteTabPane.classList.toggle( 'is-active', ! isInstant );
+		}
+
+		instantTabBtn.addEventListener( 'click', function () { activateTab( 'instant' ); } );
+		quoteTabBtn.addEventListener( 'click', function () { activateTab( 'quote' ); } );
+
+		tabsNav.appendChild( instantTabBtn );
+		tabsNav.appendChild( quoteTabBtn );
+
+		instantTabPane.appendChild( shell );
+		quoteTabPane.appendChild( buildQuoteForm() );
+
+		tabContentWrap.appendChild( instantTabPane );
+		tabContentWrap.appendChild( quoteTabPane );
+
+		root.appendChild( tabsNav );
+		root.appendChild( tabContentWrap );
 
 		function windowLabel() {
 			var win = scheduling.arrival_windows[ state.selectedWindow ];
@@ -174,6 +246,8 @@
 			var discountedTotal = Math.max( 0, subtotal - discountAmount );
 			var taxAmount        = W.computeTaxAmount( discountedTotal, taxRatePercent, taxMode );
 			var totalWithTax     = 'inclusive' === taxMode ? discountedTotal : discountedTotal + taxAmount;
+			var surchargeAmount  = state.isEmergency ? computeEmergencySurcharge( totalWithTax ) : 0;
+			totalWithTax          = totalWithTax + surchargeAmount;
 			var dueNow            = totalWithTax * ( minimumPercent / 100 );
 
 			return {
@@ -182,9 +256,61 @@
 				minimumPercent: minimumPercent,
 				discountAmount: discountAmount,
 				taxAmount: taxAmount,
+				surchargeAmount: surchargeAmount,
 				totalWithTax: totalWithTax,
 				dueNow: dueNow,
 			};
+		}
+
+		/**
+		 * Wires an address + ZIP input pair to GET /verify-address
+		 * (class-service-crew-geocoding.php's free Nominatim-based check, used
+		 * instead of a paid Google Maps key per explicit request): auto-fills
+		 * an empty ZIP from the resolved postal code, and shows a non-blocking
+		 * warning when a filled-in ZIP doesn't match — the customer can still
+		 * continue either way, since a free lookup can be wrong for a rural or
+		 * ambiguous address.
+		 *
+		 * @param {HTMLInputElement} addressInput
+		 * @param {HTMLInputElement} zipInput
+		 * @param {HTMLElement}      warningEl
+		 * @param {function(string):void} onZipAutofilled Called with the autofilled ZIP so the caller's own state stays in sync.
+		 */
+		function attachAddressVerification( addressInput, zipInput, warningEl, onZipAutofilled ) {
+			function runCheck() {
+				var address = addressInput.value.trim();
+
+				if ( ! address ) {
+					warningEl.style.display = 'none';
+					return;
+				}
+
+				var url = SC_BOOKING.restUrl + 'verify-address'
+					+ '?address=' + window.encodeURIComponent( address )
+					+ '&zip=' + window.encodeURIComponent( zipInput.value.trim() );
+
+				window.fetch( url, { headers: { 'X-WP-Nonce': SC_BOOKING.nonce } } )
+					.then( function ( response ) { return response.json(); } )
+					.then( function ( data ) {
+						if ( data && data.resolved_zip && ! zipInput.value.trim() ) {
+							zipInput.value = data.resolved_zip;
+							onZipAutofilled( data.resolved_zip );
+						}
+
+						if ( data && data.checked && ! data.matches ) {
+							warningEl.textContent = 'This ZIP code doesn’t seem to match the address you entered — please double-check it.';
+							warningEl.style.display = '';
+						} else {
+							warningEl.style.display = 'none';
+						}
+					} )
+					.catch( function () {
+						warningEl.style.display = 'none';
+					} );
+			}
+
+			addressInput.addEventListener( 'blur', runCheck );
+			zipInput.addEventListener( 'blur', runCheck );
 		}
 
 		function showStepError( panel, message ) {
@@ -332,8 +458,11 @@
 						cell.disabled = true;
 					} else {
 						cell.addEventListener( 'click', function () {
-							state.selectedDate = iso;
+							state.selectedDate   = iso;
+							state.selectedWindow = null;
+							state.isEmergency     = false;
 							renderCalendar();
+							fetchBookedWindows( iso );
 						} );
 					}
 
@@ -343,25 +472,107 @@
 				calendarEl.appendChild( grid );
 			}
 
+			/**
+			 * Refreshes which arrival-window labels are already taken for the
+			 * selected date (GET /booked-windows — Service_Crew_Bookings::
+			 * get_booked_windows()), so a slot the server would reject with
+			 * sc_slot_taken is greyed out here before the customer even tries.
+			 * A failed request just leaves nothing greyed out — the server-side
+			 * check in create_instant_booking() is still the real enforcement.
+			 *
+			 * @param {string} iso Selected date, YYYY-MM-DD.
+			 */
+			function fetchBookedWindows( iso ) {
+				if ( ! iso ) {
+					state.bookedWindows = [];
+					renderWindows();
+					return;
+				}
+
+				window.fetch( SC_BOOKING.restUrl + 'booked-windows?date=' + window.encodeURIComponent( iso ), {
+					headers: { 'X-WP-Nonce': SC_BOOKING.nonce },
+				} )
+					.then( function ( response ) { return response.json(); } )
+					.then( function ( data ) {
+						state.bookedWindows = ( data && data.windows ) || [];
+						renderWindows();
+					} )
+					.catch( function () {
+						state.bookedWindows = [];
+						renderWindows();
+					} );
+			}
+
 			function renderWindows() {
 				windowsEl.innerHTML = '';
 				windowsEl.appendChild( el( 'h3', { class: 'sc-flow-windows__title', text: 'Arrival window' } ) );
 
-				var list = el( 'div', { class: 'sc-flow-windows__list' } );
+				var list        = el( 'div', { class: 'sc-flow-windows__list' } );
+				var allWindows  = scheduling.arrival_windows || [];
 
-				( scheduling.arrival_windows || [] ).forEach( function ( win, index ) {
-					list.appendChild( el( 'button', {
+				// Every arrival window on the selected date is already
+				// taken — no date-is-today restriction, by explicit request
+				// ("if a day all windows booked then show emergency booking
+				// option no matter date is upcoming or not"). If even one
+				// window is still free, there's nothing to bypass — the
+				// customer should just pick that one instead.
+				var isDayFullyBooked = allWindows.length > 0 && allWindows.every( function ( win ) {
+					return -1 !== ( state.bookedWindows || [] ).indexOf( win.label );
+				} );
+
+				allWindows.forEach( function ( win, index ) {
+					var isTaken = -1 !== ( state.bookedWindows || [] ).indexOf( win.label );
+					var isBlocked = isTaken && ! ( isDayFullyBooked && state.isEmergency );
+
+					var attrs = {
 						type: 'button',
-						class: 'sc-flow-window-btn' + ( state.selectedWindow === index ? ' is-selected' : '' ),
-						onClick: function () {
+						class: 'sc-flow-window-btn'
+							+ ( state.selectedWindow === index ? ' is-selected' : '' )
+							+ ( isBlocked ? ' is-disabled' : '' ),
+					};
+
+					if ( ! isBlocked ) {
+						attrs.onClick = function () {
 							state.selectedWindow = index;
 							renderWindows();
-						},
-					}, [
+						};
+					}
+
+					var btn = el( 'button', attrs, [
 						el( 'span', { class: 'sc-flow-window-btn__label', text: win.label } ),
-						el( 'span', { class: 'sc-flow-window-btn__time', text: win.start + '–' + win.end } ),
-					] ) );
+						el( 'span', { class: 'sc-flow-window-btn__time', text: win.start + '–' + win.end + ( isTaken ? ' · Booked' : '' ) } ),
+					] );
+
+					if ( isBlocked ) {
+						btn.disabled = true;
+					}
+
+					list.appendChild( btn );
 				} );
+
+				if ( isDayFullyBooked ) {
+					var checkbox = el( 'input', { type: 'checkbox', class: 'sc-flow-emergency-checkbox' } );
+					checkbox.checked = Boolean( state.isEmergency );
+					checkbox.addEventListener( 'change', function () {
+						state.isEmergency = checkbox.checked;
+
+						if ( ! state.isEmergency ) {
+							state.selectedWindow = null;
+						}
+
+						renderWindows();
+					} );
+
+					var surcharge = scheduling.emergency_surcharge || {};
+					var surchargeNote = surcharge.enabled
+						? ' (adds ' + ( 'flat' === surcharge.type ? W.formatMoney( surcharge.amount ) : surcharge.amount + '%' ) + ' emergency fee)'
+						: '';
+
+					windowsEl.appendChild( el( 'label', { class: 'sc-flow-emergency' }, [
+						checkbox,
+						el( 'span', { text: 'This day is fully booked — I need service on this date anyway (Emergency Booking)' + surchargeNote } ),
+					] ) );
+				}
 
 				windowsEl.appendChild( list );
 			}
@@ -407,6 +618,17 @@
 				el( 'div', { class: 'sc-flow-field' }, [ el( 'label', { text: 'ZIP / postal code' } ), zipInput ] ),
 			] ) );
 
+			var addressWarningEl = el( 'p', { class: 'sc-flow-address-warning', style: 'display: none;' } );
+			panel.appendChild( addressWarningEl );
+			attachAddressVerification( addressInput, zipInput, addressWarningEl, function ( zip ) { state.customerZip = zip; } );
+
+			var marketingCheckbox = el( 'input', { type: 'checkbox' } );
+			marketingCheckbox.addEventListener( 'change', function () { state.marketingOptIn = marketingCheckbox.checked; } );
+			panel.appendChild( el( 'label', { class: 'sc-flow-marketing-optin' }, [
+				marketingCheckbox,
+				el( 'span', { text: 'Email me about offers and updates' } ),
+			] ) );
+
 			panel.appendChild( el( 'p', { class: 'sc-flow-error', 'aria-live': 'polite' } ) );
 
 			var payLabel = el( 'span', { class: 'sc-flow-pay-btn__label', text: 'Pay' } );
@@ -437,27 +659,30 @@
 				payBtn.classList.add( 'is-loading' );
 				payBtn.disabled = true;
 
-				var item   = state.cart[ 0 ];
-				var addons = {};
+				var items = state.cart.map( function ( item ) {
+					var addons = {};
 
-				Object.keys( item.addons || {} ).forEach( function ( key ) {
-					addons[ key ] = {
-						checked: Boolean( item.addons[ key ].checked ),
-						qty: item.addons[ key ].qty,
-					};
+					Object.keys( item.addons || {} ).forEach( function ( key ) {
+						addons[ key ] = {
+							checked: Boolean( item.addons[ key ].checked ),
+							qty: item.addons[ key ].qty,
+						};
+					} );
+
+					return { service_id: item.node.id, qty: item.qty, addons: addons };
 				} );
 
 				var body = {
-					service_id: item.node.id,
-					qty: item.qty,
-					addons: addons,
+					items: items,
 					date: state.selectedDate,
 					arrival_window_index: state.selectedWindow,
+					is_emergency: Boolean( state.isEmergency ),
 					customer_name: state.customerName,
 					customer_email: state.customerEmail,
 					customer_phone: state.customerPhone,
 					address: state.customerAddress,
 					zip: state.customerZip,
+					marketing_opt_in: Boolean( state.marketingOptIn ),
 					return_url: window.location.origin + window.location.pathname,
 				};
 
@@ -523,6 +748,13 @@
 				] ) );
 			}
 
+			if ( summary.surchargeAmount > 0 ) {
+				summaryEl.appendChild( el( 'div', { class: 'sc-flow-summary__row sc-flow-summary__row--muted' }, [
+					el( 'span', { text: 'Emergency booking fee' } ),
+					el( 'span', { text: '+' + W.formatMoney( summary.surchargeAmount ) } ),
+				] ) );
+			}
+
 			summaryEl.appendChild( el( 'div', { class: 'sc-flow-summary__row sc-flow-summary__row--grand' }, [
 				el( 'span', { text: 'Deposit due now (' + summary.minimumPercent + '% minimum)' } ),
 				el( 'span', { text: W.formatMoney( summary.dueNow ) } ),
@@ -547,6 +779,231 @@
 
 			panel.scMessage = message;
 			panel.scDetails = details;
+
+			return panel;
+		}
+
+		/* ---- Quote tab: "Request a Quote" form -------------------------- */
+
+		/**
+		 * Builds the quote-request form per the plan's Quotes section: photos,
+		 * title, description, preferred date + arrival window, address + ZIP,
+		 * phone, name, email — no service selection, no payment. Posts
+		 * multipart/form-data (for the optional photo files) to
+		 * POST /service-crew/v1/quotes; every field and photo is re-validated
+		 * server-side (class-service-crew-quotes.php) regardless of what this
+		 * form enforces client-side.
+		 *
+		 * @return {HTMLElement} The quote tab's panel element.
+		 */
+		function buildQuoteForm() {
+			var panel = el( 'div', { class: 'sc-flow-panel is-active' } );
+			var form  = el( 'div', { class: 'sc-quote-form' } );
+
+			form.appendChild( el( 'h2', { class: 'sc-flow-panel__title', text: 'Request a quote' } ) );
+			form.appendChild( el( 'p', { class: 'sc-flow-panel__subtitle', text: 'No service selection or payment needed — describe the job and we’ll follow up with a price.' } ) );
+
+			var titleInput       = el( 'input', { type: 'text', class: 'sc-flow-input', placeholder: 'e.g. Fence repair after storm damage' } );
+			var descriptionInput = el( 'textarea', { class: 'sc-flow-input sc-quote-textarea', rows: '4', placeholder: 'Describe the work you need done…' } );
+			var nameInput        = el( 'input', { type: 'text', class: 'sc-flow-input', placeholder: 'Jane Doe' } );
+			var emailInput       = el( 'input', { type: 'email', class: 'sc-flow-input', placeholder: 'jane@example.com' } );
+			var phoneInput       = el( 'input', { type: 'tel', class: 'sc-flow-input', placeholder: '(555) 123-4567' } );
+			var addressInput     = el( 'input', { type: 'text', class: 'sc-flow-input', placeholder: '123 Main St, Springfield' } );
+			var zipInput         = el( 'input', { type: 'text', class: 'sc-flow-input', placeholder: '12345' } );
+
+			var today   = new Date();
+			var minDate = toISODate( today.getFullYear(), today.getMonth(), today.getDate() );
+			var dateInput = el( 'input', { type: 'date', class: 'sc-flow-input', min: minDate } );
+
+			form.appendChild( el( 'div', { class: 'sc-flow-field' }, [ el( 'label', { text: 'What do you need done?' } ), titleInput ] ) );
+			form.appendChild( el( 'div', { class: 'sc-flow-field' }, [ el( 'label', { text: 'Describe the job' } ), descriptionInput ] ) );
+
+			form.appendChild( el( 'h3', { class: 'sc-flow-windows__title', text: 'Preferred date & window (optional)' } ) );
+			form.appendChild( el( 'div', { class: 'sc-flow-contact' }, [
+				el( 'div', { class: 'sc-flow-field' }, [ el( 'label', { text: 'Preferred date' } ), dateInput ] ),
+			] ) );
+
+			var selectedWindowIndex = null;
+			var windowsList = el( 'div', { class: 'sc-flow-windows__list' } );
+
+			( scheduling.arrival_windows || [] ).forEach( function ( win, index ) {
+				var btn = el( 'button', {
+					type: 'button',
+					class: 'sc-flow-window-btn',
+					onClick: function () {
+						selectedWindowIndex = index;
+						Array.prototype.forEach.call( windowsList.children, function ( child, i ) {
+							child.classList.toggle( 'is-selected', i === index );
+						} );
+					},
+				}, [
+					el( 'span', { class: 'sc-flow-window-btn__label', text: win.label } ),
+					el( 'span', { class: 'sc-flow-window-btn__time', text: win.start + '–' + win.end } ),
+				] );
+
+				windowsList.appendChild( btn );
+			} );
+
+			form.appendChild( windowsList );
+
+			/* Photos: client-side is a convenience preview only — count, type
+			   and size are all re-checked server-side (Service_Crew_Quotes). */
+			var selectedFiles = [];
+			var photoList  = el( 'div', { class: 'sc-quote-photo-list' } );
+			var fileInputId = root.id + '-quote-photos';
+			var fileInput  = el( 'input', {
+				type: 'file',
+				id: fileInputId,
+				class: 'sc-quote-file-input',
+				accept: 'image/png,image/jpeg,image/gif,image/webp',
+				multiple: 'multiple',
+			} );
+
+			function renderPhotoList() {
+				photoList.innerHTML = '';
+
+				selectedFiles.forEach( function ( file, index ) {
+					var thumb = el( 'div', { class: 'sc-quote-photo-thumb' } );
+					thumb.appendChild( el( 'img', { src: URL.createObjectURL( file ), alt: '' } ) );
+					thumb.appendChild( el( 'button', {
+						type: 'button',
+						class: 'sc-quote-photo-remove',
+						'aria-label': 'Remove photo',
+						text: '×',
+						onClick: function () {
+							selectedFiles.splice( index, 1 );
+							renderPhotoList();
+						},
+					} ) );
+					photoList.appendChild( thumb );
+				} );
+			}
+
+			fileInput.addEventListener( 'change', function () {
+				Array.prototype.slice.call( fileInput.files ).forEach( function ( file ) {
+					if ( selectedFiles.length < 6 ) {
+						selectedFiles.push( file );
+					}
+				} );
+				fileInput.value = '';
+				renderPhotoList();
+			} );
+
+			form.appendChild( el( 'h3', { class: 'sc-flow-windows__title', text: 'Photos (optional, up to 6)' } ) );
+			form.appendChild( el( 'label', { class: 'sc-quote-dropzone', for: fileInputId, text: '+ Add photos' } ) );
+			form.appendChild( fileInput );
+			form.appendChild( photoList );
+
+			form.appendChild( el( 'h3', { class: 'sc-flow-windows__title', text: 'Your details' } ) );
+			form.appendChild( el( 'div', { class: 'sc-flow-contact' }, [
+				el( 'div', { class: 'sc-flow-field' }, [ el( 'label', { text: 'Full name' } ), nameInput ] ),
+				el( 'div', { class: 'sc-flow-field' }, [ el( 'label', { text: 'Email address' } ), emailInput ] ),
+				el( 'div', { class: 'sc-flow-field' }, [ el( 'label', { text: 'Phone number' } ), phoneInput ] ),
+				el( 'div', { class: 'sc-flow-field sc-flow-field--full' }, [ el( 'label', { text: 'Service address (where the crew should come)' } ), addressInput ] ),
+				el( 'div', { class: 'sc-flow-field' }, [ el( 'label', { text: 'ZIP / postal code' } ), zipInput ] ),
+			] ) );
+
+			var quoteAddressWarningEl = el( 'p', { class: 'sc-flow-address-warning', style: 'display: none;' } );
+			form.appendChild( quoteAddressWarningEl );
+			attachAddressVerification( addressInput, zipInput, quoteAddressWarningEl, function () {} );
+
+			var quoteMarketingCheckbox = el( 'input', { type: 'checkbox' } );
+			form.appendChild( el( 'label', { class: 'sc-flow-marketing-optin' }, [
+				quoteMarketingCheckbox,
+				el( 'span', { text: 'Email me about offers and updates' } ),
+			] ) );
+
+			// Hidden from real visitors (off-screen, unreachable by tab, never
+			// announced) — a filled-in value here means a bot, not a customer.
+			// See Service_Crew_Quotes::create_quote_request()'s honeypot check.
+			var honeypotInput = el( 'input', {
+				type: 'text',
+				class: 'sc-quote-honeypot',
+				name: 'website',
+				tabindex: '-1',
+				autocomplete: 'off',
+				'aria-hidden': 'true',
+			} );
+			form.appendChild( honeypotInput );
+
+			var errorEl = el( 'p', { class: 'sc-flow-error', 'aria-live': 'polite' } );
+			form.appendChild( errorEl );
+
+			var submitLabel   = el( 'span', { class: 'sc-flow-pay-btn__label', text: 'Send quote request' } );
+			var submitSpinner = el( 'span', { class: 'sc-flow-pay-btn__spinner' } );
+			var submitBtn     = el( 'button', { type: 'button', class: 'sc-flow-pay-btn', onClick: handleQuoteSubmit }, [ submitLabel, submitSpinner ] );
+			form.appendChild( submitBtn );
+
+			var successEl = el( 'div', { class: 'sc-flow-panel--thankyou', style: 'display: none;' }, [
+				el( 'div', { class: 'sc-flow-thankyou__icon' }, [ el( 'span', { text: '✓' } ) ] ),
+				el( 'h2', { class: 'sc-flow-panel__title', text: 'Request received!' } ),
+				el( 'p', { class: 'sc-flow-thankyou__message', text: 'Thanks — we’ll review the details and follow up with a price soon.' } ),
+			] );
+
+			panel.appendChild( form );
+			panel.appendChild( successEl );
+
+			function handleQuoteSubmit() {
+				if ( ! titleInput.value.trim() || ! descriptionInput.value.trim() ) {
+					showStepError( panel, 'Please describe the work you need done.' );
+					return;
+				}
+
+				if ( ! nameInput.value.trim() || ! emailInput.value.trim() ) {
+					showStepError( panel, 'Please enter your name and email to continue.' );
+					return;
+				}
+
+				if ( submitBtn.classList.contains( 'is-loading' ) ) {
+					return;
+				}
+
+				submitBtn.classList.add( 'is-loading' );
+				submitBtn.disabled = true;
+
+				var formData = new window.FormData();
+				formData.append( 'title', titleInput.value );
+				formData.append( 'description', descriptionInput.value );
+				formData.append( 'name', nameInput.value );
+				formData.append( 'email', emailInput.value );
+				formData.append( 'phone', phoneInput.value );
+				formData.append( 'address', addressInput.value );
+				formData.append( 'zip', zipInput.value );
+				formData.append( 'preferred_date', dateInput.value );
+				formData.append( 'arrival_window', null !== selectedWindowIndex ? scheduling.arrival_windows[ selectedWindowIndex ].label : '' );
+				formData.append( 'marketing_opt_in', quoteMarketingCheckbox.checked ? '1' : '0' );
+				formData.append( 'website', honeypotInput.value );
+
+				selectedFiles.forEach( function ( file ) {
+					formData.append( 'photos[]', file );
+				} );
+
+				// No 'Content-Type' header: the browser sets the multipart
+				// boundary itself, which it can only do if it builds the header.
+				window.fetch( SC_BOOKING.restUrl + 'quotes', {
+					method: 'POST',
+					headers: { 'X-WP-Nonce': SC_BOOKING.nonce },
+					body: formData,
+				} )
+					.then( function ( response ) {
+						return response.json().then( function ( data ) {
+							return { ok: response.ok, data: data };
+						} );
+					} )
+					.then( function ( result ) {
+						if ( ! result.ok ) {
+							throw new Error( ( result.data && result.data.message ) || 'Something went wrong. Please try again.' );
+						}
+
+						form.style.display = 'none';
+						successEl.style.display = '';
+					} )
+					.catch( function ( error ) {
+						submitBtn.classList.remove( 'is-loading' );
+						submitBtn.disabled = false;
+						showStepError( panel, error.message || 'Something went wrong. Please try again.' );
+					} );
+			}
 
 			return panel;
 		}
@@ -586,6 +1043,10 @@
 				return;
 			}
 
+			// The customer only ever left for Stripe from the Instant Booking
+			// tab — land back on it even if the quote tab was left active.
+			activateTab( 'instant' );
+
 			// Strip the query string so a reload/back doesn't re-trigger this.
 			if ( window.history && window.history.replaceState ) {
 				window.history.replaceState( null, '', window.location.pathname );
@@ -599,6 +1060,16 @@
 
 			if ( 'success' === status ) {
 				goToStep( 3 );
+
+				// The booking already exists server-side regardless of payment
+				// status — clear the browsing cart (and its sessionStorage
+				// entry) now so it doesn't reappear as "already there" if the
+				// customer starts a fresh booking on this same page/tab.
+				if ( widgetApi && widgetApi.clearCart ) {
+					widgetApi.clearCart();
+				}
+				state.cart = [];
+
 				showThankYouMessage( 'Confirming your payment…', '' );
 				pollPaymentStatus( bookingId, params.get( 'sc_email' ) || '', 0 );
 			}
@@ -650,6 +1121,8 @@
 					stepper.appendChild( el( 'div', { class: 'sc-flow-step__connector' + ( index < state.stepIndex ? ' is-complete' : '' ) } ) );
 				}
 			} );
+
+			stepperCaption.textContent = 'Step ' + ( state.stepIndex + 1 ) + ' of ' + STEPS.length + ' — ' + STEPS[ state.stepIndex ].label;
 		}
 
 		function renderFooter() {
@@ -668,6 +1141,8 @@
 						state.stepIndex      = 0;
 						state.selectedDate   = null;
 						state.selectedWindow = null;
+						state.isEmergency     = false;
+						state.bookedWindows   = [];
 						render();
 					},
 				} ) );
@@ -698,9 +1173,11 @@
 							return;
 						}
 
-						// A real booking is always exactly one service — see
-						// class-service-crew-bookings.php's docblock for why.
-						if ( cart.length > 1 ) {
+						// Single- vs multi-service is an admin setting
+						// (Service_Crew_Settings' allow_multiple_services) —
+						// see class-service-crew-bookings.php's docblock for
+						// how a multi-item booking is priced/stored.
+						if ( cart.length > 1 && ! scheduling.allow_multiple_services ) {
 							showStepError( panelsEl.querySelector( '[data-step="0"]' ), 'Please select only one service for this booking — remove the extra selections above.' );
 							return;
 						}

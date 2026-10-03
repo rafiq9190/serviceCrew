@@ -196,6 +196,20 @@ class Service_Crew_Settings {
 					'deposit_percent'    => 20,
 				),
 			),
+			// Off by default — preserves today's "exactly one service"
+			// behavior for every existing install. When on,
+			// Service_Crew_Bookings::create_instant_booking() accepts more
+			// than one item and charges them as a single combined deposit.
+			'allow_multiple_services' => false,
+			// Extra fee for an Emergency Booking (same-day, bypassing an
+			// already-taken date+window slot) — off by default. 'type' is
+			// 'flat' (a fixed amount) or 'percent' (of the discounted, taxed
+			// total). See Service_Crew_Pricing::calculate_emergency_surcharge().
+			'emergency_surcharge'    => array(
+				'enabled' => false,
+				'type'    => 'percent',
+				'amount'  => 25.0,
+			),
 		);
 	}
 
@@ -242,6 +256,8 @@ class Service_Crew_Settings {
 			'tax_rate_percent'     => max( 0.0, min( 100.0, (float) ( $params['tax_rate_percent'] ?? $defaults['tax_rate_percent'] ) ) ),
 			'tax_mode'             => 'inclusive' === ( $params['tax_mode'] ?? '' ) ? 'inclusive' : 'exclusive',
 			'minimum_deposit_tiers' => $this->sanitize_deposit_tiers( $params['minimum_deposit_tiers'] ?? array() ),
+			'allow_multiple_services' => ! empty( $params['allow_multiple_services'] ),
+			'emergency_surcharge'  => $this->sanitize_emergency_surcharge( $params['emergency_surcharge'] ?? array() ),
 		);
 
 		update_option( self::OPTION_NAME, $sanitized, false );
@@ -408,6 +424,24 @@ class Service_Crew_Settings {
 		);
 
 		return empty( $sanitized ) ? self::get_defaults()['minimum_deposit_tiers'] : $sanitized;
+	}
+
+	/**
+	 * Sanitizes the emergency-booking surcharge: on/off, a flat-vs-percent
+	 * type, and a non-negative amount. Same "clamp, never reject" rule as the
+	 * rest of this class's numeric fields.
+	 *
+	 * @param mixed $input Raw posted value.
+	 * @return array{enabled:bool,type:string,amount:float}
+	 */
+	private function sanitize_emergency_surcharge( $input ) {
+		$input = is_array( $input ) ? $input : array();
+
+		return array(
+			'enabled' => ! empty( $input['enabled'] ),
+			'type'    => 'flat' === ( $input['type'] ?? '' ) ? 'flat' : 'percent',
+			'amount'  => max( 0.0, (float) ( $input['amount'] ?? 0 ) ),
+		);
 	}
 
 	/**

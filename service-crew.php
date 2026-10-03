@@ -26,8 +26,8 @@ if ( ! defined( 'ABSPATH' ) ) {
  * activator revision can bump it independently and run incremental
  * dbDelta() migrations without requiring a full plugin version bump.
  */
-define( 'SERVICE_CREW_VERSION', '1.0.14' );
-define( 'SERVICE_CREW_DB_VERSION', '1.0.0' );
+define( 'SERVICE_CREW_VERSION', '1.0.33' );
+define( 'SERVICE_CREW_DB_VERSION', '1.5.0' );
 define( 'SERVICE_CREW_PLUGIN_FILE', __FILE__ );
 define( 'SERVICE_CREW_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'SERVICE_CREW_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -65,6 +65,15 @@ spl_autoload_register(
 register_activation_hook( __FILE__, array( 'Service_Crew_Activator', 'activate' ) );
 register_deactivation_hook( __FILE__, array( 'Service_Crew_Deactivator', 'deactivate' ) );
 
+/*
+ * Schema migrations for an already-active install: activate() only ever runs
+ * once (on activation), so a later SERVICE_CREW_DB_VERSION bump needs its own
+ * seam to actually reach a site that installed an earlier version. admin_init
+ * (not plugins_loaded) so this never runs on the public, unauthenticated
+ * booking-checkout endpoint — see Service_Crew_Activator::maybe_upgrade().
+ */
+add_action( 'admin_init', array( 'Service_Crew_Activator', 'maybe_upgrade' ) );
+
 /**
  * Bootstraps the plugin once all plugins are loaded.
  *
@@ -97,5 +106,15 @@ function service_crew_init() {
 	new Service_Crew_Gateway_Stripe();
 	new Service_Crew_Bookings();
 	new Service_Crew_Bookings_Controller();
+	new Service_Crew_Customers_Controller();
+	new Service_Crew_Quotes_Controller();
+	new Service_Crew_Pay_Page();
+	new Service_Crew_Job_Status_Page();
+	new Service_Crew_Job_Status_Controller();
+	new Service_Crew_Emails();
+	new Service_Crew_Smtp();
+	new Service_Crew_Notifications();
+	new Service_Crew_Notifications_Controller();
+	new Service_Crew_Cron();
 }
 add_action( 'plugins_loaded', 'service_crew_init' );

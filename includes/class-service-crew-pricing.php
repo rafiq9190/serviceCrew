@@ -232,6 +232,30 @@ class Service_Crew_Pricing {
 	}
 
 	/**
+	 * Extra fee for an Emergency Booking (Service_Crew_Settings'
+	 * emergency_surcharge), applied on top of an already-discounted, already-
+	 * taxed total. Zero whenever the admin has it turned off. 'flat' returns
+	 * the configured amount as-is; 'percent' takes that percentage of $amount.
+	 *
+	 * @param float                                          $amount             Discounted, taxed total to base a percentage surcharge on.
+	 * @param array{enabled:bool,type:string,amount:float}    $surcharge_settings Saved emergency_surcharge settings.
+	 * @return float
+	 */
+	public static function calculate_emergency_surcharge( $amount, array $surcharge_settings ) {
+		if ( empty( $surcharge_settings['enabled'] ) ) {
+			return 0.0;
+		}
+
+		$configured_amount = max( 0.0, (float) ( $surcharge_settings['amount'] ?? 0 ) );
+
+		if ( 'flat' === ( $surcharge_settings['type'] ?? '' ) ) {
+			return round( $configured_amount, 2 );
+		}
+
+		return round( (float) $amount * ( $configured_amount / 100 ), 2 );
+	}
+
+	/**
 	 * Builds the checkout payment options: the minimum required payment plus
 	 * every tier above it, each with its discounted total and the amount due
 	 * now at that percentage — everything the plan's "checkout shows the

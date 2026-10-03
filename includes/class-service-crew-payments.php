@@ -138,6 +138,119 @@ class Service_Crew_Payments {
 				'permission_callback' => array( $this, 'check_permission' ),
 			)
 		);
+
+		register_rest_route(
+			self::API_NAMESPACE,
+			'/pay/(?P<token>[^/]+)/checkout',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'create_pay_page_checkout' ),
+				'permission_callback' => '__return_true',
+			)
+		);
+
+		register_rest_route(
+			self::API_NAMESPACE,
+			'/pay/(?P<token>[^/]+)/status',
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( $this, 'get_pay_page_status' ),
+				'permission_callback' => '__return_true',
+			)
+		);
+	}
+
+	/**
+	 * POST handler for the private pay page's "Pay now" button: opens a
+	 * fresh Stripe Checkout session for the payment a token resolves to.
+	 * Public — the token itself is the access control, same as every other
+	 * pay-page route (see class-service-crew-pay-page.php) — and no amount or
+	 * booking data is trusted from the request, only the token.
+	 *
+	 * @param WP_REST_Request $request Request; 'token' from the route.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function create_pay_page_checkout( $request ) {
+		$payment = self::find_payment_by_token( (string) $request['token'] );
+		if ( ! $payment ) {
+			return new WP_Error( 'sc_pay_token_invalid', __( 'This payment link is invalid or has expired.', 'service-crew' ), array( 'status' => 404 ) );
+		}
+
+		if ( self::STATUS_SUCCEEDED === $payment->status ) {
+			return new WP_Error(
+				'sc_pay_already_paid',
+				self::KIND_BALANCE === $payment->kind
+					? __( 'This balance has already been paid.', 'service-crew' )
+					: __( 'This deposit has already been paid.', 'service-crew' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		global $wpdb;
+		$booking = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM ' . $wpdb->prefix . 'sc_bookings WHERE id = %d', (int) $payment->booking_id ) );
+		if ( ! $booking ) {
+			return new WP_Error( 'sc_pay_booking_missing', __( 'The booking for this payment could not be found.', 'service-crew' ), array( 'status' => 404 ) );
+		}
+
+		$gateway = self::get_gateway( $payment->provider );
+		if ( is_wp_error( $gateway ) ) {
+			return $gateway;
+		}
+
+		$pay_url = Service_Crew_Pay_Page::build_url( (string) $request['token'] );
+
+		$line_item_label = self::KIND_BALANCE === $payment->kind
+			/* translators: %s: quote/job title. */
+			? sprintf( __( 'Balance — %s', 'service-crew' ), $booking->quote_title ? $booking->quote_title : __( 'ServiceCrew booking', 'service-crew' ) )
+			/* translators: %s: quote/job title. */
+			: sprintf( __( 'Deposit — %s', 'service-crew' ), $booking->quote_title ? $booking->quote_title : __( 'ServiceCrew booking', 'service-crew' ) );
+
+		$line_items = array(
+			array(
+				'name'     => $line_item_label,
+				'amount'   => (float) $payment->amount,
+				'quantity' => 1,
+			),
+		);
+
+		$session = $gateway->create_checkout_session(
+			array(
+				'id'             => $payment->id,
+				'customer_email' => $booking->customer_email,
+			),
+			$line_items,
+			add_query_arg( 'sc_pay_status', 'success', $pay_url ),
+			add_query_arg( 'sc_pay_status', 'cancel', $pay_url )
+		);
+
+		if ( is_wp_error( $session ) ) {
+			return $session;
+		}
+
+		return rest_ensure_response( array( 'checkout_url' => $session['url'] ?? '' ) );
+	}
+
+	/**
+	 * GET handler the pay page polls after returning from Stripe, while the
+	 * webhook catches up — same pattern as
+	 * Service_Crew_Bookings_Controller::get_payment_status(), keyed by token
+	 * instead of booking id + email since the pay page never asks the
+	 * customer to type anything.
+	 *
+	 * @param WP_REST_Request $request Request; 'token' from the route.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function get_pay_page_status( $request ) {
+		$payment = self::find_payment_by_token( (string) $request['token'] );
+		if ( ! $payment ) {
+			return new WP_Error( 'sc_pay_token_invalid', __( 'This payment link is invalid or has expired.', 'service-crew' ), array( 'status' => 404 ) );
+		}
+
+		return rest_ensure_response(
+			array(
+				'succeeded' => self::STATUS_SUCCEEDED === $payment->status,
+			)
+		);
 	}
 
 	/**
@@ -184,6 +297,10 @@ class Service_Crew_Payments {
 			'live_publishable_key'  => '',
 			'live_secret_key'       => '',
 			'live_webhook_secret'   => '',
+			// 0 = no page chosen; Service_Crew_Bookings falls back to
+			// home_url('/') for either one until an admin picks a page here.
+			'success_page_id'       => 0,
+			'cancel_page_id'        => 0,
 		);
 	}
 
@@ -191,6 +308,11 @@ class Service_Crew_Payments {
 	 * Masks every secret field and flags which ones are overridden by a
 	 * wp-config.php constant, for a future settings screen (wizard step 4) to
 	 * grey those fields out. Never returns a secret in full, per the plan.
+	 * Also adds a few read-only, never-stored fields the settings screen
+	 * needs to render itself: the two page-picker dropdowns (built by core's
+	 * own wp_dropdown_pages() rather than hand-rolling an equivalent select
+	 * client-side), the webhook URL to paste into Stripe, and the fixed list
+	 * of event types Stripe should be configured to send.
 	 *
 	 * @param array<string,mixed> $settings Raw settings (from get_saved_settings()).
 	 * @return array<string,mixed>
@@ -205,6 +327,33 @@ class Service_Crew_Payments {
 		$settings['live_secret_key_source']     = defined( 'SERVICE_CREW_STRIPE_LIVE_SECRET_KEY' ) ? 'wp-config' : 'database';
 		$settings['test_webhook_secret_source'] = defined( 'SERVICE_CREW_STRIPE_TEST_WEBHOOK_SECRET' ) ? 'wp-config' : 'database';
 		$settings['live_webhook_secret_source'] = defined( 'SERVICE_CREW_STRIPE_LIVE_WEBHOOK_SECRET' ) ? 'wp-config' : 'database';
+
+		$settings['success_page_dropdown'] = wp_dropdown_pages(
+			array(
+				'name'              => 'sc_success_page_id',
+				'id'                => 'sc-success-page-select',
+				'class'             => 'sc-input',
+				'selected'          => $settings['success_page_id'],
+				'show_option_none'  => __( '— Use the page the booking widget is on —', 'service-crew' ),
+				'option_none_value' => '0',
+				'echo'              => 0,
+			)
+		);
+
+		$settings['cancel_page_dropdown'] = wp_dropdown_pages(
+			array(
+				'name'              => 'sc_cancel_page_id',
+				'id'                => 'sc-cancel-page-select',
+				'class'             => 'sc-input',
+				'selected'          => $settings['cancel_page_id'],
+				'show_option_none'  => __( '— Use the page the booking widget is on —', 'service-crew' ),
+				'option_none_value' => '0',
+				'echo'              => 0,
+			)
+		);
+
+		$settings['webhook_url']    = rest_url( self::API_NAMESPACE . Service_Crew_Gateway_Stripe::WEBHOOK_ROUTE );
+		$settings['webhook_events'] = Service_Crew_Gateway_Stripe::HANDLED_EVENTS;
 
 		return $settings;
 	}
@@ -251,6 +400,8 @@ class Service_Crew_Payments {
 			'live_secret_key'      => $this->resolve_secret_field( $params['live_secret_key'] ?? '', $current['live_secret_key'] ),
 			'test_webhook_secret'  => $this->resolve_secret_field( $params['test_webhook_secret'] ?? '', $current['test_webhook_secret'] ),
 			'live_webhook_secret'  => $this->resolve_secret_field( $params['live_webhook_secret'] ?? '', $current['live_webhook_secret'] ),
+			'success_page_id'      => $this->resolve_page_field( $params['success_page_id'] ?? null, $current['success_page_id'] ),
+			'cancel_page_id'       => $this->resolve_page_field( $params['cancel_page_id'] ?? null, $current['cancel_page_id'] ),
 		);
 
 		update_option( self::OPTION_NAME, $sanitized, false );
@@ -275,6 +426,65 @@ class Service_Crew_Payments {
 		}
 
 		return sanitize_text_field( $submitted );
+	}
+
+	/**
+	 * Validates a posted page id: 0 (no page chosen, falls back to
+	 * home_url('/') wherever it's consumed) or an existing 'page' post.
+	 * Anything else — a missing key, a non-numeric value, a deleted page id —
+	 * falls back to whatever was already saved rather than clearing it, same
+	 * "submitting a field you didn't touch shouldn't erase it" rule the
+	 * secret fields above follow.
+	 *
+	 * @param mixed $submitted Posted page id.
+	 * @param int   $existing  Currently stored page id.
+	 * @return int
+	 */
+	private function resolve_page_field( $submitted, $existing ) {
+		if ( null === $submitted ) {
+			return absint( $existing );
+		}
+
+		$page_id = absint( $submitted );
+
+		if ( 0 === $page_id ) {
+			return 0;
+		}
+
+		return 'page' === get_post_type( $page_id ) ? $page_id : absint( $existing );
+	}
+
+	/**
+	 * The admin-chosen success page's URL, or '' if none is set/valid —
+	 * Service_Crew_Bookings falls back to home_url('/') itself so this stays
+	 * a pure lookup with no opinion about the ultimate default.
+	 *
+	 * @return string
+	 */
+	public static function get_success_page_url() {
+		return self::get_configured_page_url( 'success_page_id' );
+	}
+
+	/**
+	 * @return string
+	 */
+	public static function get_cancel_page_url() {
+		return self::get_configured_page_url( 'cancel_page_id' );
+	}
+
+	/**
+	 * @param string $option_key 'success_page_id' or 'cancel_page_id'.
+	 * @return string
+	 */
+	private static function get_configured_page_url( $option_key ) {
+		$page_id = absint( self::get_saved_settings()[ $option_key ] ?? 0 );
+		if ( ! $page_id ) {
+			return '';
+		}
+
+		$url = get_permalink( $page_id );
+
+		return $url ? $url : '';
 	}
 
 	/**
@@ -492,6 +702,48 @@ class Service_Crew_Payments {
 		global $wpdb;
 
 		return $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM ' . self::table() . ' WHERE booking_id = %d ORDER BY created_at ASC', absint( $booking_id ) ) );
+	}
+
+	/**
+	 * Most recent payment for a booking still eligible for a refund
+	 * (succeeded, or already partially refunded) — the admin refund action's
+	 * starting point. The deposit-only system today means a booking normally
+	 * has at most one of these; "most recent" future-proofs this for Phase
+	 * 1c's balance/extra payments without the caller needing to change.
+	 *
+	 * @param int $booking_id Booking id.
+	 * @return object|null
+	 */
+	public static function get_latest_refundable_payment( $booking_id ) {
+		$eligible = array_values(
+			array_filter(
+				self::get_payments_for_booking( $booking_id ),
+				function ( $payment ) {
+					return in_array( $payment->status, array( self::STATUS_SUCCEEDED, self::STATUS_PARTIALLY_REFUNDED ), true );
+				}
+			)
+		);
+
+		return empty( $eligible ) ? null : end( $eligible );
+	}
+
+	/**
+	 * Sum of successful refunds already issued against a payment — used to
+	 * work out how much of it still remains refundable.
+	 *
+	 * @param int $payment_id Payment id.
+	 * @return float
+	 */
+	public static function get_refunded_amount( $payment_id ) {
+		global $wpdb;
+
+		return (float) $wpdb->get_var(
+			$wpdb->prepare(
+				'SELECT COALESCE(SUM(amount),0) FROM ' . $wpdb->prefix . 'sc_refunds WHERE payment_id = %d AND status = %s',
+				absint( $payment_id ),
+				'succeeded'
+			)
+		);
 	}
 
 	/**

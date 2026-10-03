@@ -590,3 +590,135 @@
 	font-size: 17px;
 	font-weight: 700;
 }
+
+/*
+ * Mobile (<=600px): the 3-column browser collapses into a single nested
+ * accordion — renderColumn() in booking-widget.js recurses into itself for
+ * whichever category is open, indented here rather than opening a sibling
+ * column — and the running total moves from a third column into this fixed
+ * bottom bar/drawer (renderMobileTotalBar()). Every rule in this block is
+ * additive/override-only inside the media query; nothing above this comment
+ * changes for desktop.
+ */
+
+.sc-w-mobile-total-bar {
+	display: none;
+}
+
+@media (max-width: 600px) {
+	.sc-w-columns {
+		flex-direction: column;
+		overflow-x: visible;
+		/* Keeps the last accordion row clear of the fixed total bar below. */
+		padding-bottom: 76px;
+	}
+
+	.sc-w-column,
+	.sc-w-total {
+		width: 100%;
+		min-width: 0;
+	}
+
+	/* Nested accordion depth: a drilled-into category's column renders
+	   inside its parent row's own column, indented so depth reads at a
+	   glance instead of jumping to a sibling column the way desktop does. */
+	.sc-w-column .sc-w-column {
+		margin: 6px 0 6px 8px;
+		padding: 8px;
+		border: none;
+		border-left: 2px solid var(--sc-w-border, #e2e8f0);
+		border-radius: 0;
+	}
+
+	/* No touch equivalent for a hover flyout — see collapseNode()/
+	   toggleNode() in booking-widget.js for the tap drill-in/collapse
+	   replacement. */
+	.sc-w-preview {
+		display: none !important;
+	}
+
+	/* Touch-target bumps (Apple/Google's ~44px minimum) — desktop's compact
+	   sizing above is untouched outside this media query. */
+	.sc-w-qty__btn {
+		width: 40px;
+		height: 40px;
+		font-size: 17px;
+	}
+
+	.sc-w-row__label {
+		padding: 13px 12px;
+	}
+
+	.sc-w-row__arrow {
+		width: 32px;
+		height: 32px;
+		font-size: 17px;
+	}
+
+	.sc-w-cart-card__remove {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 32px;
+		height: 32px;
+		font-size: 18px;
+	}
+
+	/*
+	 * Fixed at the viewport bottom, same dark --sc-w-total-* palette as the
+	 * desktop Total column: renderCartCard()/renderTotalSummary() build
+	 * their markup assuming that dark surface (semi-transparent white
+	 * overlays, etc.) and are reused here as-is rather than duplicated for a
+	 * light background.
+	 */
+	.sc-w-mobile-total-bar {
+		display: block;
+		position: fixed;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 50;
+		background: var(--sc-w-total-bg, #0f172a);
+		color: var(--sc-w-total-text, #ffffff);
+		border-top: 1px solid var(--sc-w-total-accent, #818cf8);
+		box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.25);
+	}
+
+	.sc-w-mobile-total-bar__toggle {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 10px;
+		width: 100%;
+		padding: 14px 16px;
+		border: none;
+		background: none;
+		color: inherit;
+		font: inherit;
+		cursor: pointer;
+	}
+
+	.sc-w-mobile-total-bar__count {
+		flex: 1 1 auto;
+		text-align: left;
+		font-size: 13px;
+		opacity: 0.85;
+	}
+
+	.sc-w-mobile-total-bar__amount {
+		font-size: 16px;
+		font-weight: 700;
+	}
+
+	.sc-w-mobile-total-bar__chevron {
+		font-size: 12px;
+		opacity: 0.75;
+	}
+
+	.sc-w-mobile-total-bar__drawer {
+		max-height: 55vh;
+		overflow-y: auto;
+		padding: 0 0 12px;
+		border-top: 1px solid rgba(255, 255, 255, 0.16);
+	}
+}

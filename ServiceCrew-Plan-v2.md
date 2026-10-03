@@ -25,6 +25,17 @@ This revision keeps every locked decision from the earlier plan (file/class nami
 
 ---
 
+## V1 launch scope (confirmed 2026-10-03 — overrides Phase 1c/1d below until revisited)
+
+To ship V1 sooner, **vendor management** and the **crew-facing PWA** (this section's own "Crew app (PWA)" below, as originally specced) are both cut from the first launch. Everything in this section overrides the conflicting parts of Phase 1c/Phase 1d and the Emails table further down — those sections are kept below as the eventual fuller build, not as V1's actual scope.
+
+- **Vendor management: deferred, code untouched.** The `sc_crew` `type` field, vendor radius-required validation, and the dormant `sc_vendor_payments`/`sc_booking_assignments` tables all stay exactly as already built — nothing is hidden or rolled back. The only real effect: V1's dispatch board (`class-service-crew-matching.php`, `class-service-crew-assignments.php`) only ever suggests/assigns `employee`-type crew. Agreed-amount entry, vendor payments, and the vendor PWA view are not built in V1.
+- **Crew PWA: fully deferred.** No VAPID keypair, no service worker, no manifest, no Application-Passwords login, no `wp_users` provisioning for employees/vendors in V1.
+- **Employee assignment: by email, final immediately, no accept/decline — built 2026-10-03.** Admin confirms availability off-system (phone/text), then assigns a single employee or a team + lead on the dispatch board — immediately final, no "N of M accepted" partial state. The customer's **Assigned** email (see Emails table below) fires right away on assignment, not once-everyone-accepts. Every assigned employee gets an informational email (customer name, tap-to-call phone, address + map link built from the existing geocoded lat/lng, service/sub-service breakdown, scheduled date/window, dispatch notes). Only the **lead's** email additionally includes a no-login, hashed-token status link (same mechanism as `Service_Crew_Payments::generate_pay_token()`/the pay-page, with its own longer TTL policy tied to the job's scheduled date rather than a fixed duration) to self-report On the way → Start → Complete, with a note + photo upload at Complete reusing the quote form's hardened upload validation. No decline mechanism: the admin manually reassigns if someone can't do the job, which sends a fresh assignment email and invalidates the old lead's status-link token.
+- **Admin PWA: explicitly not built (decided 2026-10-03).** The original idea here was a narrow push-notification channel (VAPID + service worker + a single stored admin subscription) so the admin gets notified when an employee uses their status link, designed so a later AI-agent "ask the admin" escalation feature could reuse the same channel. On reflection, hand-rolling Web Push crypto (VAPID JWT signing, optionally RFC8291 payload encryption) with no library and no way to test it against a real push service in this environment wasn't worth the risk for what email notifications already cover — the owner chose to skip it rather than ship unverified crypto. Admin stays email-only. Revisit only if a real need (e.g. the AI-agent escalation feature) actually materializes.
+
+---
+
 ## Confirmed decisions
 
 ### Business and addresses
@@ -74,6 +85,7 @@ This revision keeps every locked decision from the earlier plan (file/class nami
 - Rejected: admin marks it with a reason; it closes. Accepted but unscheduled: reminder after an admin-set number of days (default 3), then it expires like any quote.
 
 ### Dispatch, teams and vendors
+*(See "V1 launch scope" above — V1 drops vendor suggestion/assignment and the PWA-accept step below; everything else in this section carries into V1 as written.)*
 - Every booking lands on the dispatch board. The system **suggests** the best fit (nearest, least-loaded qualifying employee; vendors when no employee fits, nearest first). It never assigns automatically.
 - A booking has a **list of assignments**, not one crew id. Single-person jobs work as before (that person is automatically the lead). Team jobs show "2 of 3 assigned"; a declined place shows "needs 1 more". Employees and vendors can be mixed on one team.
 - **Lead** controls On the way, Start and Complete and adds the completion note and photos. If the lead declines, the admin picks a new lead.
@@ -82,6 +94,7 @@ This revision keeps every locked decision from the earlier plan (file/class nami
 - Conflicts and overlaps are **warnings, never blocks**.
 
 ### Crew app (PWA)
+*(See "V1 launch scope" above — this entire section is deferred for V1; it describes the eventual fuller build, not what ships first.)*
 - **Employees see no money at all.** **Vendors see only their own agreed amount, their payment status and amount paid so far.** No customer price, deposit, balance, discount or surcharge, ever. Enforced by the **server** (separate response shapes per role), verified by direct API calls in testing.
 - Flow per job: Accept (or Decline with a reason) → **On the way** → Start → Complete. "On the way" exists because a first visit is sometimes needed before work begins; Start is tapped only when work actually begins.
 - Job list is server-filtered to the person's own assignments. Push denied still allows manual list refresh.
@@ -97,7 +110,7 @@ Each email can be switched on/off and its wording edited in Settings. No status 
 | New booking / new quote / emergency booking | Admin | On submit |
 | Booking confirmation | Customer | On paid booking (emergency says "we'll confirm shortly") |
 | Quote received | Customer | On quote submit |
-| Assigned (names, photos, staff/vendor, arrival window) | Customer | When **everyone** on the team has accepted (vendors only after PWA accept) |
+| Assigned (names, photos, staff/vendor, arrival window) | Customer | When **everyone** on the team has accepted (vendors only after PWA accept). **For V1** (see "V1 launch scope" above): fires immediately when the admin finalizes the assignment — there is no accept step. |
 | Reassigned | Customer | New person(s) confirmed |
 | On the way | Customer | Lead taps On the way |
 | Started | Customer | Lead taps Start |
@@ -139,9 +152,11 @@ Each email can be switched on/off and its wording edited in Settings. No status 
 **UI requirements:** live price/duration from `POST /calculate-price` only; on a date-filled race, re-fetch dates and show "that date just filled" before any charge; emergency option only on disabled dates; `awaiting_payment` rows expire via WP-Cron and never count toward capacity.
 
 ### Phase 1c — Quotes, dispatch board, teams, vendor pricing
+**V1 note:** see "V1 launch scope" above — build the dispatch board and team/lead assignment below for **employees only** (no vendor suggestion/assignment, no agreed-amount entry), and replace the assignment-confirmation/"assigned" email trigger with the email-based, final-immediately flow described there instead of a PWA accept step.
 **Builds:** quote path and form (photo upload hardened: `wp_check_filetype_and_ext()`, image-only allowlist, size cap, `media_handle_upload()`, honeypot + rate limit), `class-service-crew-notes.php`, `class-service-crew-assignments.php`, dispatch board (suggestions with distance/workload, team assignment with lead, flags, overtime approval and admin-only surcharge, emergency approval, refund and balance-collection actions, cancel/reschedule tools), `class-service-crew-vendor-payments.php`, quote timers (expiry, reminders) and the no-response timer in `class-service-crew-cron.php`, quote-deposit payment link, "assigned" / "reassigned" / "cancelled" / "updated" emails.
 
 ### Phase 1d — Web Push and crew/vendor PWA
+**V1 note:** see "V1 launch scope" above — the crew/vendor PWA below is deferred in its entirety for V1. V1's own, much narrower admin-only push-notification channel (and the employee status-link page that replaces the Accept/On the way/Start/Complete flow below) is a separate, smaller build described there, not this phase.
 **Builds:** VAPID keypair + vendored signer, `class-service-crew-push.php` (`sc_job_assigned` / `sc_job_canceled`, compound event on reassignment), push controller, `class-service-crew-app-access.php` (App access box, invite, set-password link, revoke), PWA auth via Application Passwords, PWA (list, detail, Accept / Decline + reason, On the way, Start, Complete + note/photos, service worker, manifest, `class-service-crew-pwa-loader.php`), **role-specific response shapes** (employee: no money; vendor: own agreed amount + status), "on the way" / "started" / "completed" emails, stale-subscription sweep.
 
 ### Phase 1e — CRM surfacing
@@ -240,6 +255,7 @@ Customer detail shows booking history (with fulfilling people), payments and ref
 - `class-service-crew-capacity.php` — pooled-hours date logic; pure calc, unit-tested like pricing.
 - `class-service-crew-matching.php` — suggestions only; pure calc.
 - `class-service-crew-emails.php`, `class-service-crew-assignments.php`, `class-service-crew-vendor-payments.php`, `class-service-crew-app-access.php`.
+- **V1-only (see "V1 launch scope" above):** a job status-link page class mirroring `public/class-service-crew-pay-page.php`'s token-page pattern (employee self-reports On the way/Start/Complete + photo upload, no login); a narrow admin-only push class (VAPID + single stored subscription) replacing `class-service-crew-push.php`'s scope for V1.
 
 ## Verification (per sub-phase gate)
 

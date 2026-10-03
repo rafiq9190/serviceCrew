@@ -1,10 +1,9 @@
 /**
  * First-run setup wizard: business basics, scheduling, the mandatory
- * address-lookup consent + test, a first service, an optional first crew
- * member, and a finish checklist. See class-service-crew-wizard.php for why
- * there is no "Payments" step yet (Phase 1b-1) and why steps 2 and 5 talk
- * straight to the existing scheduling-settings/services endpoints instead of
- * a wizard-owned copy of them.
+ * address-lookup consent + test, payments, a first service, an optional
+ * first crew member, and a finish checklist. Steps 2, 4 and 5 talk straight
+ * to the existing scheduling-settings/payment-settings/services endpoints
+ * instead of a wizard-owned copy of them — see class-service-crew-wizard.php.
  */
 ( function () {
 	'use strict';
@@ -51,6 +50,7 @@
 		{ key: 'basics', label: 'Business basics' },
 		{ key: 'scheduling', label: 'Scheduling' },
 		{ key: 'address', label: 'Address lookup' },
+		{ key: 'payments', label: 'Payments' },
 		{ key: 'first_service', label: 'First service' },
 		{ key: 'first_crew', label: 'First crew member' },
 		{ key: 'finish', label: 'Finish' },
@@ -61,6 +61,7 @@
 		wizardState: { current_step: STEPS[ 0 ].key, completed_steps: [], consent_accepted: false, address_test_passed: false, dismissed: false },
 		basics: null,
 		schedulingSettings: null,
+		paymentSettings: null,
 	};
 
 	function stepIndexForKey( key ) {
@@ -401,6 +402,124 @@
 		refreshNextState();
 	}
 
+	// ---- Step 4: payments (thin wrapper over the payment-settings endpoints, skippable) --
+
+	function renderPaymentsStep() {
+		var settings = state.paymentSettings;
+		var body = SCApp.el( 'div', {} );
+		body.appendChild( SCApp.el( 'h2', { text: 'Payments' } ) );
+		body.appendChild( SCApp.el( 'p', {
+			class: 'sc-help',
+			text: 'Connect Stripe so customers can pay a deposit and book instantly. Optional — skip it and the quote form still works, but instant booking stays disabled until Stripe is connected. Minimum deposit and advance-payment discount tiers live in Settings and Discounts, reachable any time from the ServiceCrew menu.',
+		} ) );
+
+		var testRadio = SCApp.el( 'input', { type: 'radio', name: 'sc_wizard_payment_mode', value: 'test' } );
+		var liveRadio = SCApp.el( 'input', { type: 'radio', name: 'sc_wizard_payment_mode', value: 'live' } );
+		( 'live' === settings.mode ? liveRadio : testRadio ).checked = true;
+
+		body.appendChild( SCApp.el( 'div', { class: 'sc-toggle-row' }, [
+			SCApp.el( 'label', { class: 'sc-toggle' }, [ testRadio, SCApp.el( 'span', { text: 'Use test mode' } ) ] ),
+			SCApp.el( 'label', { class: 'sc-toggle' }, [ liveRadio, SCApp.el( 'span', { text: 'Use live mode' } ) ] ),
+		] ) );
+		body.appendChild( SCApp.el( 'p', { class: 'sc-help', text: 'Which set of keys below is used for real checkouts. Keep test mode selected until ready to accept real payments.' } ) );
+
+		function keyField( label, value, locked, help ) {
+			var input = SCApp.el( 'input', { type: 'text', class: 'sc-input', value: value } );
+			if ( locked ) {
+				input.setAttribute( 'disabled', 'disabled' );
+			}
+
+			var field = SCApp.el( 'div', { class: 'sc-field' }, [
+				SCApp.el( 'label', { text: label } ),
+				input,
+				SCApp.el( 'p', { class: 'sc-help', text: locked ? 'Defined in wp-config.php — this field is ignored.' : help } ),
+			] );
+
+			return { input: input, field: field };
+		}
+
+		var grid = SCApp.el( 'div', { class: 'sc-settings-grid' } );
+
+		var testCard = SCApp.sectionCard( 'dashicons-money-alt', 'Test mode keys', 'From the Stripe dashboard, Developers → API keys, in test mode.' );
+		var testPub = keyField( 'Publishable key', settings.test_publishable_key, false, 'Safe to expose to the browser.' );
+		var testSecret = keyField( 'Secret key', settings.test_secret_key, 'wp-config' === settings.test_secret_key_source, 'Never shown in full once saved.' );
+		var testWebhook = keyField( 'Webhook signing secret', settings.test_webhook_secret, 'wp-config' === settings.test_webhook_secret_source, 'From the webhook endpoint created for this site.' );
+		testCard.appendChild( testPub.field );
+		testCard.appendChild( testSecret.field );
+		testCard.appendChild( testWebhook.field );
+
+		var liveCard = SCApp.sectionCard( 'dashicons-lock', 'Live mode keys', 'From the Stripe dashboard, Developers → API keys, in live mode.' );
+		var livePub = keyField( 'Publishable key', settings.live_publishable_key, false, 'Safe to expose to the browser.' );
+		var liveSecret = keyField( 'Secret key', settings.live_secret_key, 'wp-config' === settings.live_secret_key_source, 'Never shown in full once saved.' );
+		var liveWebhook = keyField( 'Webhook signing secret', settings.live_webhook_secret, 'wp-config' === settings.live_webhook_secret_source, 'From the webhook endpoint created for this site.' );
+		liveCard.appendChild( livePub.field );
+		liveCard.appendChild( liveSecret.field );
+		liveCard.appendChild( liveWebhook.field );
+
+		grid.appendChild( testCard );
+		grid.appendChild( liveCard );
+		body.appendChild( grid );
+
+		function collect() {
+			return {
+				mode: liveRadio.checked ? 'live' : 'test',
+				test_publishable_key: testPub.input.value,
+				test_secret_key: testSecret.input.value,
+				test_webhook_secret: testWebhook.input.value,
+				live_publishable_key: livePub.input.value,
+				live_secret_key: liveSecret.input.value,
+				live_webhook_secret: liveWebhook.input.value,
+			};
+		}
+
+		var testResult = SCApp.el( 'p', { class: 'sc-help' } );
+		var testButton = SCApp.el( 'button', { type: 'button', class: 'sc-btn sc-btn--secondary', text: 'Save & test connection' } );
+
+		testButton.addEventListener( 'click', function () {
+			testButton.setAttribute( 'disabled', 'disabled' );
+			testResult.classList.remove( 'sc-notice' );
+			testResult.textContent = 'Saving and testing…';
+
+			SCApp.request( { path: '/service-crew/v1/payment-settings', method: 'PUT', data: collect() } ).then( function ( saved ) {
+				state.paymentSettings = saved;
+				return SCApp.request( { path: '/service-crew/v1/payment-settings/test-connection', method: 'POST', data: { mode: saved.mode } } );
+			} ).then( function () {
+				testResult.textContent = 'Connected — Stripe accepted these keys.';
+				testButton.removeAttribute( 'disabled' );
+			} ).catch( function () {
+				testResult.classList.add( 'sc-notice' );
+				testResult.textContent = 'Connection failed — see the notice above for details.';
+				testButton.removeAttribute( 'disabled' );
+			} );
+		} );
+
+		body.appendChild( testButton );
+		body.appendChild( testResult );
+
+		var skipLink = SCApp.el( 'button', { type: 'button', class: 'sc-link-danger', text: 'Skip for now — instant booking stays disabled' } );
+		body.appendChild( skipLink );
+
+		function goNext() {
+			saveWizardState( { completed_steps: markStepComplete( 'payments' ) } ).then( function () {
+				goToStep( state.stepIndex + 1 );
+			} );
+		}
+
+		skipLink.addEventListener( 'click', goNext );
+
+		renderShell(
+			body,
+			function () { goToStep( state.stepIndex - 1 ); },
+			function () {
+				SCApp.request( { path: '/service-crew/v1/payment-settings', method: 'PUT', data: collect() } ).then( function ( saved ) {
+					state.paymentSettings = saved;
+					goNext();
+				} );
+			},
+			'Next'
+		);
+	}
+
 	// ---- Step 5: first service (thin wrapper over the Services endpoint) --
 
 	function renderFirstServiceStep() {
@@ -561,7 +680,7 @@
 			list.appendChild( checklistRow( 'Business basics', summary.business_basics_done ) );
 			list.appendChild( checklistRow( 'Scheduling', summary.scheduling_done ) );
 			list.appendChild( checklistRow( 'Address lookup', summary.address_done ) );
-			list.appendChild( checklistRow( 'Payments', summary.payments_done, 'Coming in a later update — the quote form works without it.' ) );
+			list.appendChild( checklistRow( 'Payments', summary.payments_done, summary.payments_done ? '' : 'Stripe not connected — instant booking is disabled until keys are added.' ) );
 			list.appendChild( checklistRow( 'First service', summary.first_service_done, summary.first_service_done ? '' : 'No services yet — instant booking has nothing to sell until one exists.' ) );
 			list.appendChild( checklistRow( 'First crew member', summary.first_crew_done, summary.first_crew_done ? '' : 'No crew yet — optional, but nothing can be assigned until one exists.' ) );
 		} );
@@ -571,6 +690,7 @@
 		basics: renderBasicsStep,
 		scheduling: renderSchedulingStep,
 		address: renderAddressStep,
+		payments: renderPaymentsStep,
 		first_service: renderFirstServiceStep,
 		first_crew: renderFirstCrewStep,
 		finish: renderFinishStep,
@@ -594,6 +714,10 @@
 		} )
 		.then( function ( settings ) {
 			state.schedulingSettings = settings;
+			return SCApp.request( { path: '/service-crew/v1/payment-settings' } );
+		} )
+		.then( function ( paymentSettings ) {
+			state.paymentSettings = paymentSettings;
 			render();
 		} );
 } )();

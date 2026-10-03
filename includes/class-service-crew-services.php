@@ -190,9 +190,23 @@ class Service_Crew_Services {
 	 * @return void
 	 */
 	public function register_admin_menu() {
+		// Menu title only (2nd arg) gets the count bubble — the 1st arg
+		// becomes the browser <title>, which must stay plain text. Same
+		// markup WordPress core itself uses for the Comments menu bubble, so
+		// .awaiting-mod/.pending-count are already styled, no new CSS needed.
+		$menu_title       = __( 'ServiceCrew', 'service-crew' );
+		$unread_count     = Service_Crew_Notifications::get_unread_count();
+
+		if ( $unread_count > 0 ) {
+			$menu_title .= sprintf(
+				' <span class="awaiting-mod count-%1$d"><span class="pending-count">%1$d</span></span>',
+				$unread_count
+			);
+		}
+
 		add_menu_page(
 			__( 'ServiceCrew', 'service-crew' ),
-			__( 'ServiceCrew', 'service-crew' ),
+			$menu_title,
 			'manage_options',
 			'service-crew',
 			array( $this, 'render_admin_landing_page' ),

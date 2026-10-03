@@ -1,13 +1,15 @@
 <?php
 /**
- * Custom admin app shell for Services, Discounts, Appearance, Settings and
- * Bookings — replaces the native post-editor screens for sc_service. Each
- * submenu renders a bare container div; all rendering/interaction happens
- * client-side against Service_Crew_Services_Controller /
- * Service_Crew_Discounts / Service_Crew_Appearance / Service_Crew_Settings /
- * Service_Crew_Bookings_Controller's REST routes via wp-api-fetch (core's own
- * REST client — it handles the nonce and root URL for us, no hand-rolled
- * AJAX plumbing needed).
+ * Custom admin app shell for Services, Discounts, Payments, Emails,
+ * Appearance, Settings, Bookings and Customers — replaces the native
+ * post-editor screens for sc_service. Each submenu renders a bare container
+ * div; all rendering/interaction happens client-side against
+ * Service_Crew_Services_Controller / Service_Crew_Discounts /
+ * Service_Crew_Payments / Service_Crew_Emails / Service_Crew_Appearance /
+ * Service_Crew_Settings / Service_Crew_Bookings_Controller /
+ * Service_Crew_Customers_Controller's REST routes via wp-api-fetch (core's
+ * own REST client — it handles the nonce and root URL for us, no
+ * hand-rolled AJAX plumbing needed).
  *
  * @package ServiceCrew
  */
@@ -38,6 +40,20 @@ class Service_Crew_Admin_App {
 	private $hook_discounts;
 
 	/**
+	 * Hook suffix for the Payments submenu page (see $hook_services).
+	 *
+	 * @var string
+	 */
+	private $hook_payments;
+
+	/**
+	 * Hook suffix for the Emails submenu page (see $hook_services).
+	 *
+	 * @var string
+	 */
+	private $hook_emails;
+
+	/**
 	 * Hook suffix for the Appearance submenu page (see $hook_services).
 	 *
 	 * @var string
@@ -59,6 +75,13 @@ class Service_Crew_Admin_App {
 	private $hook_bookings;
 
 	/**
+	 * Hook suffix for the Customers submenu page (see $hook_services).
+	 *
+	 * @var string
+	 */
+	private $hook_customers;
+
+	/**
 	 * Registers every WordPress hook this class needs. Called once from the
 	 * plugin bootstrap.
 	 */
@@ -68,8 +91,8 @@ class Service_Crew_Admin_App {
 	}
 
 	/**
-	 * Attaches the Services and Discounts submenus to the existing
-	 * 'service-crew' top-level menu (created by Service_Crew_Services).
+	 * Attaches every custom admin app submenu to the existing 'service-crew'
+	 * top-level menu (created by Service_Crew_Services).
 	 *
 	 * @return void
 	 */
@@ -90,6 +113,24 @@ class Service_Crew_Admin_App {
 			'manage_options',
 			'service-crew-discounts',
 			array( $this, 'render_discounts_page' )
+		);
+
+		$this->hook_payments = add_submenu_page(
+			'service-crew',
+			__( 'Payments', 'service-crew' ),
+			__( 'Payments', 'service-crew' ),
+			'manage_options',
+			'service-crew-payments',
+			array( $this, 'render_payments_page' )
+		);
+
+		$this->hook_emails = add_submenu_page(
+			'service-crew',
+			__( 'Emails', 'service-crew' ),
+			__( 'Emails', 'service-crew' ),
+			'manage_options',
+			'service-crew-emails',
+			array( $this, 'render_emails_page' )
 		);
 
 		$this->hook_appearance = add_submenu_page(
@@ -118,6 +159,15 @@ class Service_Crew_Admin_App {
 			'service-crew-bookings',
 			array( $this, 'render_bookings_page' )
 		);
+
+		$this->hook_customers = add_submenu_page(
+			'service-crew',
+			__( 'Customers', 'service-crew' ),
+			__( 'Customers', 'service-crew' ),
+			'manage_options',
+			'service-crew-customers',
+			array( $this, 'render_customers_page' )
+		);
 	}
 
 	/**
@@ -141,6 +191,28 @@ class Service_Crew_Admin_App {
 		echo '<div class="wrap">';
 		$this->render_header( 'discounts' );
 		echo '<div id="sc-app-root" data-view="discounts"></div></div>';
+	}
+
+	/**
+	 * Renders the Payments app container.
+	 *
+	 * @return void
+	 */
+	public function render_payments_page() {
+		echo '<div class="wrap">';
+		$this->render_header( 'payments' );
+		echo '<div id="sc-app-root" data-view="payments"></div></div>';
+	}
+
+	/**
+	 * Renders the Emails app container.
+	 *
+	 * @return void
+	 */
+	public function render_emails_page() {
+		echo '<div class="wrap">';
+		$this->render_header( 'emails' );
+		echo '<div id="sc-app-root" data-view="emails"></div></div>';
 	}
 
 	/**
@@ -177,14 +249,27 @@ class Service_Crew_Admin_App {
 	}
 
 	/**
-	 * Renders the header shared by all four app screens — brand mark plus a
-	 * tab per screen. Server-rendered and deliberately outside #sc-app-root
-	 * (each screen's own JS wipes and rebuilds that element's contents on
-	 * every interaction; a header inside it would flash/disappear on every
-	 * re-render). Plain page navigation (real hrefs), not client-side
-	 * routing — these are four separate wp-admin pages.
+	 * Renders the Customers app container.
 	 *
-	 * @param string $active_view One of 'services', 'discounts', 'appearance', 'settings', 'bookings'.
+	 * @return void
+	 */
+	public function render_customers_page() {
+		echo '<div class="wrap">';
+		$this->render_header( 'customers' );
+		echo '<div id="sc-app-root" data-view="customers"></div></div>';
+	}
+
+	/**
+	 * Renders the header shared by every app screen — brand mark, the
+	 * notification bell (static markup only; admin/js/app-core.js fills in
+	 * the badge count and dropdown list on every screen this renders on),
+	 * and a tab per screen. Server-rendered and deliberately outside
+	 * #sc-app-root (each screen's own JS wipes and rebuilds that element's
+	 * contents on every interaction; a header inside it would flash/
+	 * disappear on every re-render). Plain page navigation (real hrefs), not
+	 * client-side routing — these are separate wp-admin pages.
+	 *
+	 * @param string $active_view One of 'services', 'discounts', 'payments', 'emails', 'appearance', 'settings', 'bookings', 'customers'.
 	 * @return void
 	 */
 	private function render_header( $active_view ) {
@@ -196,6 +281,14 @@ class Service_Crew_Admin_App {
 			'discounts'  => array(
 				'label' => __( 'Discounts', 'service-crew' ),
 				'page'  => 'service-crew-discounts',
+			),
+			'payments'   => array(
+				'label' => __( 'Payments', 'service-crew' ),
+				'page'  => 'service-crew-payments',
+			),
+			'emails'     => array(
+				'label' => __( 'Emails', 'service-crew' ),
+				'page'  => 'service-crew-emails',
 			),
 			'appearance' => array(
 				'label' => __( 'Appearance', 'service-crew' ),
@@ -209,6 +302,10 @@ class Service_Crew_Admin_App {
 				'label' => __( 'Bookings', 'service-crew' ),
 				'page'  => 'service-crew-bookings',
 			),
+			'customers'  => array(
+				'label' => __( 'Customers', 'service-crew' ),
+				'page'  => 'service-crew-customers',
+			),
 		);
 		?>
 		<div class="sc-app-header">
@@ -217,6 +314,16 @@ class Service_Crew_Admin_App {
 				<span class="sc-app-header__title"><?php esc_html_e( 'ServiceCrew', 'service-crew' ); ?></span>
 			</div>
 			<nav class="sc-app-header__nav">
+				<div class="sc-bell-wrap">
+					<button type="button" class="sc-bell" aria-label="<?php esc_attr_e( 'Notifications', 'service-crew' ); ?>">
+						<span class="dashicons dashicons-bell" aria-hidden="true"></span>
+						<span class="sc-bell__badge" style="display: none;">0</span>
+					</button>
+					<div class="sc-bell-dropdown" hidden>
+						<div class="sc-bell-dropdown__list"></div>
+						<a class="sc-bell-dropdown__viewall" href="<?php echo esc_url( admin_url( 'admin.php?page=service-crew-bookings' ) ); ?>"><?php esc_html_e( 'View all bookings', 'service-crew' ); ?></a>
+					</div>
+				</div>
 				<?php foreach ( $tabs as $key => $tab ) : ?>
 					<a
 						href="<?php echo esc_url( admin_url( 'admin.php?page=' . $tab['page'] ) ); ?>"
@@ -231,13 +338,13 @@ class Service_Crew_Admin_App {
 	}
 
 	/**
-	 * Enqueues the shared app CSS/JS only on the four screens above.
+	 * Enqueues the shared app CSS/JS only on the screens registered above.
 	 *
 	 * @param string $hook_suffix Current admin page hook suffix.
 	 * @return void
 	 */
 	public function enqueue_assets( $hook_suffix ) {
-		$app_hooks = array( $this->hook_services, $this->hook_discounts, $this->hook_appearance, $this->hook_settings, $this->hook_bookings );
+		$app_hooks = array( $this->hook_services, $this->hook_discounts, $this->hook_payments, $this->hook_emails, $this->hook_appearance, $this->hook_settings, $this->hook_bookings, $this->hook_customers );
 
 		if ( ! in_array( $hook_suffix, $app_hooks, true ) ) {
 			return;
@@ -295,6 +402,26 @@ class Service_Crew_Admin_App {
 			);
 		}
 
+		if ( $this->hook_payments === $hook_suffix ) {
+			wp_enqueue_script(
+				'sc-admin-app-payments',
+				SERVICE_CREW_PLUGIN_URL . 'admin/js/app-payments.js',
+				array( 'sc-admin-app-core' ),
+				SERVICE_CREW_VERSION,
+				true
+			);
+		}
+
+		if ( $this->hook_emails === $hook_suffix ) {
+			wp_enqueue_script(
+				'sc-admin-app-emails',
+				SERVICE_CREW_PLUGIN_URL . 'admin/js/app-emails.js',
+				array( 'sc-admin-app-core' ),
+				SERVICE_CREW_VERSION,
+				true
+			);
+		}
+
 		if ( $this->hook_appearance === $hook_suffix ) {
 			// wp-color-picker (core, ships with every WP install) gives a real
 			// picker UI instead of a bare <input type="color"> swatch.
@@ -322,6 +449,16 @@ class Service_Crew_Admin_App {
 			wp_enqueue_script(
 				'sc-admin-app-bookings',
 				SERVICE_CREW_PLUGIN_URL . 'admin/js/app-bookings.js',
+				array( 'sc-admin-app-core' ),
+				SERVICE_CREW_VERSION,
+				true
+			);
+		}
+
+		if ( $this->hook_customers === $hook_suffix ) {
+			wp_enqueue_script(
+				'sc-admin-app-customers',
+				SERVICE_CREW_PLUGIN_URL . 'admin/js/app-customers.js',
 				array( 'sc-admin-app-core' ),
 				SERVICE_CREW_VERSION,
 				true

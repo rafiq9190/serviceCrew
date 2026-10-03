@@ -26,15 +26,12 @@ class Service_Crew_Deactivator {
 	 * @return void
 	 */
 	public static function deactivate() {
-		/*
-		 * No ServiceCrew cron hooks exist yet as of Phase 1a. Future phases
-		 * introduce them (e.g. the awaiting_payment expiry job in Phase
-		 * 1b-2, quote-expiry / no-response timers in Phase 1c's
-		 * class-service-crew-cron.php, the stale-subscription sweep in
-		 * Phase 1d). When those land, clear each one here with
-		 * wp_clear_scheduled_hook( 'hook_name' ) so a deactivated plugin
-		 * never leaves a dangling scheduled event behind.
-		 */
+		wp_clear_scheduled_hook( Service_Crew_Bookings::CRON_HOOK );
+		wp_clear_scheduled_hook( Service_Crew_Cron::CRON_HOOK );
+
+		// A future stale-subscription sweep (Phase 1d's crew PWA, now
+		// deferred — see ServiceCrew-Plan-v2.md's "V1 launch scope") will
+		// need its own wp_clear_scheduled_hook() call added here too.
 
 		flush_rewrite_rules();
 	}

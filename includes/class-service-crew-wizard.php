@@ -2,15 +2,13 @@
 /**
  * First-run setup wizard: business basics, scheduling (thin wrapper over the
  * existing scheduling-settings endpoint), the mandatory address-lookup
- * consent + test, a first service (thin wrapper over the existing services
- * endpoint), an optional first crew member, and a finish checklist.
+ * consent + test, payments (thin wrapper over the existing payment-settings/
+ * test-connection endpoints, skippable per the plan), a first service (thin
+ * wrapper over the existing services endpoint), an optional first crew
+ * member, and a finish checklist.
  *
- * Step 4 (Payments) is intentionally absent — it's a separate, not-yet-built
- * Phase 1b-1 task ("Payments step of the setup wizard") that will insert
- * itself into STEP_KEYS once Stripe exists. Everything here is written
- * against that eventual insertion: step order and progress are driven by
- * STEP_KEYS rather than hardcoded numbers, so adding a step later doesn't
- * require renumbering anything.
+ * Step order and progress are driven by STEP_KEYS rather than hardcoded
+ * numbers, so adding a step later doesn't require renumbering anything.
  *
  * @package ServiceCrew
  */
@@ -75,12 +73,12 @@ class Service_Crew_Wizard {
 	const ACTIVATION_REDIRECT_TRANSIENT = 'sc_activation_redirect';
 
 	/**
-	 * Every wizard step, in order. 'address' cannot be skipped; 'first_crew'
-	 * can. See the class docblock for why there's no 'payments' entry yet.
+	 * Every wizard step, in order. 'address' cannot be skipped; 'payments',
+	 * 'first_service' and 'first_crew' can.
 	 *
 	 * @var string[]
 	 */
-	const STEP_KEYS = array( 'basics', 'scheduling', 'address', 'first_service', 'first_crew', 'finish' );
+	const STEP_KEYS = array( 'basics', 'scheduling', 'address', 'payments', 'first_service', 'first_crew', 'finish' );
 
 	/**
 	 * Registers every WordPress hook this class needs. Called once from the
@@ -280,12 +278,13 @@ class Service_Crew_Wizard {
 	}
 
 	/**
-	 * Registers the wizard's own REST routes. Scheduling (step 2) and the
-	 * first service (step 5) are deliberately NOT re-registered here — the
-	 * wizard's JS talks to the existing /scheduling-settings and /services
-	 * routes directly, so this class only owns what nothing else already
-	 * exposes: progress state, business basics, the address test, a
-	 * create-only first-crew-member endpoint, and the finish summary.
+	 * Registers the wizard's own REST routes. Scheduling (step 2), payments
+	 * (step 4) and the first service (step 5) are deliberately NOT
+	 * re-registered here — the wizard's JS talks to the existing
+	 * /scheduling-settings, /payment-settings and /services routes directly,
+	 * so this class only owns what nothing else already exposes: progress
+	 * state, business basics, the address test, a create-only
+	 * first-crew-member endpoint, and the finish summary.
 	 *
 	 * @return void
 	 */
@@ -783,9 +782,10 @@ class Service_Crew_Wizard {
 				'address_done'         => $state['consent_accepted'] && $state['address_test_passed'],
 				'first_service_done'   => $has_service,
 				'first_crew_done'      => $has_crew,
-				// Stripe doesn't exist yet — Phase 1b-1 adds the payments step
-				// and this flips to a real check once it does.
-				'payments_done'        => false,
+				// A configured secret key in either mode, not a passed connection
+				// test — the admin may have tested and left test mode fields
+				// filled without re-testing live, or vice versa.
+				'payments_done'        => '' !== Service_Crew_Payments::get_secret_key( 'test' ) || '' !== Service_Crew_Payments::get_secret_key( 'live' ),
 			)
 		);
 	}

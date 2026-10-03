@@ -187,6 +187,15 @@
 		return best;
 	}
 
+	/**
+	 * Single breakpoint shared with booking-widget.css/booking-flow.css's own
+	 * `@media (max-width: 600px)` blocks — checked live (not cached) since a
+	 * phone can rotate or a window can resize across it mid-session.
+	 */
+	function isMobileAccordion() {
+		return Boolean( window.matchMedia ) && window.matchMedia( '(max-width: 600px)' ).matches;
+	}
+
 	function initWidget( root ) {
 		var dataEl = root.querySelector( '.sc-booking-data' );
 		var payload;
@@ -204,14 +213,17 @@
 		var minimumDepositTiers = payload.minimumDepositTiers || [];
 
 		var container   = el( 'div', { class: 'sc-w-columns' } );
+		var totalBar    = el( 'div', { class: 'sc-w-mobile-total-bar' } );
 		var storageKey  = 'sc-booking-widget-state:' + ( root.id || 'default' );
 		root.appendChild( container );
+		root.appendChild( totalBar );
 
 		var state = {
 			columns: [ tree ],
 			selectedPath: [],
 			activeLeaf: null, // { node, qty, addons, parentTitle } — being configured, not yet committed.
 			cart: [],         // committed items, same shape as activeLeaf.
+			mobileTotalOpen: false, // mobile-only: is the bottom total bar's cart drawer expanded?
 		};
 
 		/*
@@ -393,6 +405,42 @@
 		}
 
 		/**
+		 * Mobile-accordion-only: closes an already-open node back up rather
+		 * than re-selecting it, mirroring applySelection()'s own truncation of
+		 * selectedPath/columns. Whatever was still being configured (an
+		 * uncommitted activeLeaf) is committed first — the same thing that
+		 * already happens when navigating to a different selection, so
+		 * collapsing never silently discards a pick.
+		 *
+		 * @param {number} colIndex Column/depth of the node being collapsed.
+		 */
+		function collapseNode( colIndex ) {
+			commitActiveLeaf();
+			state.selectedPath = state.selectedPath.slice( 0, colIndex );
+			state.columns      = state.columns.slice( 0, colIndex + 1 );
+			render();
+		}
+
+		/**
+		 * Row click dispatch shared by both layouts: desktop always drills in;
+		 * the mobile accordion instead collapses a row that's already open
+		 * (has_children or an in-progress leaf), since there's no separate
+		 * column to "leave" by picking something else the way desktop has.
+		 *
+		 * @param {number}  colIndex   Column/depth this row lives in.
+		 * @param {Object}  node       The row's node.
+		 * @param {boolean} isSelected Whether this row is already the open one at this depth.
+		 */
+		function toggleNode( colIndex, node, isSelected ) {
+			if ( isMobileAccordion() && isSelected ) {
+				collapseNode( colIndex );
+				return;
+			}
+
+			selectNode( colIndex, node );
+		}
+
+		/**
 		 * Picks a node straight from its ancestor's hover-preview flyout —
 		 * applies the whole chain from the hovered row down through the
 		 * clicked node (which may be several levels deep, since the preview
@@ -519,10 +567,13 @@
 				var isLeafActive = Boolean( state.activeLeaf ) && state.activeLeaf.node.id === node.id;
 				var hasComponents = ! node.has_children && node.components && node.components.length > 0;
 
-				// A top-level leaf's add-ons get their own column 2 (see
-				// render()); only a leaf found deeper (colIndex > 0) expands
-				// its add-ons inline under its own row.
-				var expandInline = isLeafActive && node.components.length > 0 && colIndex > 0;
+				// A top-level leaf's add-ons get their own column 2 on desktop
+				// (see render()); a leaf found deeper (colIndex > 0) always
+				// expands its add-ons inline under its own row instead — and
+				// so does a top-level leaf too, once the mobile accordion
+				// collapses everything into a single nested column (see
+				// render()'s mobile branch).
+				var expandInline = isLeafActive && node.components.length > 0 && ( colIndex > 0 || isMobileAccordion() );
 				var row = el( 'div', { class: 'sc-w-row' + ( isSelected ? ' is-selected' : '' ) + ( expandInline ? ' is-expanded' : '' ) } );
 
 				var nameParts = [
@@ -545,7 +596,7 @@
 					nameParts.push( el( 'span', { class: 'sc-w-row__added', text: '✓ Added' } ) );
 				}
 
-				row.appendChild( el( 'div', { class: 'sc-w-row__label', onClick: function () { selectNode( colIndex, node ); } }, nameParts ) );
+				row.appendChild( el( 'div', { class: 'sc-w-row__label', onClick: function () { toggleNode( colIndex, node, isSelected ); } }, nameParts ) );
 
 				// Hover preview only for a category's own children — real,
 				// selectable tree nodes. A leaf's add-ons are never shown on
@@ -568,6 +619,14 @@
 				}
 
 				column.appendChild( row );
+
+				// Mobile accordion: a selected category's children nest
+				// directly inside this same column, indented under its row
+				// (see booking-widget.css), instead of render() placing them
+				// in a separate sibling column the way desktop does.
+				if ( isMobileAccordion() && isSelected && node.has_children ) {
+					column.appendChild( renderColumn( node.children, colIndex + 1, null ) );
+				}
 			} );
 
 			return column;
@@ -815,6 +874,18 @@
 		function render() {
 			container.innerHTML = '';
 
+			// Mobile accordion: a single nested column, no separate
+			// Sub-services/Add-ons/Total columns — renderColumn() recurses
+			// into itself for any open category (see its own mobile branch),
+			// and the running total moves to the fixed bottom bar below
+			// instead of a third column.
+			if ( isMobileAccordion() ) {
+				container.appendChild( renderColumn( state.columns[ 0 ], 0, 'Services' ) );
+				saveState();
+				renderMobileTotalBar();
+				return;
+			}
+
 			container.appendChild( renderColumn( state.columns[ 0 ], 0, 'Services' ) );
 
 			if ( state.columns.length > 1 ) {
@@ -832,11 +903,79 @@
 			}
 
 			container.appendChild( renderTotalColumn() );
+			totalBar.innerHTML = ''; // desktop never shows the mobile bar.
 			saveState();
+		}
+
+		/**
+		 * Mobile-only running-total bar, fixed to the viewport bottom: a
+		 * collapsed toggle (item count + subtotal) that expands into a
+		 * scrollable drawer with the same cart cards + pricing summary the
+		 * desktop Total column shows (renderCartCard()/renderTotalSummary()
+		 * reused as-is — no separate mobile pricing logic).
+		 */
+		function renderMobileTotalBar() {
+			totalBar.innerHTML = '';
+
+			var items = state.cart.map( function ( item ) { return { item: item, active: false }; } );
+
+			if ( state.activeLeaf ) {
+				items.push( { item: state.activeLeaf, active: true } );
+			}
+
+			var subtotal = 0;
+			var cards    = items.map( function ( entry ) {
+				var rendered = renderCartCard( entry.item, entry.active );
+				subtotal += rendered.price;
+				return rendered.card;
+			} );
+
+			var toggle = el( 'button', {
+				type: 'button',
+				class: 'sc-w-mobile-total-bar__toggle',
+				onClick: function () {
+					state.mobileTotalOpen = ! state.mobileTotalOpen;
+					render();
+				},
+			}, [
+				el( 'span', { class: 'sc-w-mobile-total-bar__count', text: items.length + ( 1 === items.length ? ' item' : ' items' ) } ),
+				el( 'span', { class: 'sc-w-mobile-total-bar__amount', text: formatMoney( subtotal ) } ),
+				el( 'span', { class: 'sc-w-mobile-total-bar__chevron', text: state.mobileTotalOpen ? '▾' : '▴' } ),
+			] );
+
+			totalBar.appendChild( toggle );
+
+			if ( ! state.mobileTotalOpen ) {
+				return;
+			}
+
+			var drawer = el( 'div', { class: 'sc-w-mobile-total-bar__drawer' } );
+
+			if ( ! items.length ) {
+				drawer.appendChild( el( 'p', { class: 'sc-w-total__empty', text: 'Select a service to see pricing.' } ) );
+			} else {
+				cards.forEach( function ( card ) { drawer.appendChild( card ); } );
+				drawer.appendChild( renderTotalSummary( subtotal ) );
+			}
+
+			totalBar.appendChild( drawer );
 		}
 
 		loadState();
 		render();
+
+		// Re-render across the mobile/desktop boundary (device rotation, a
+		// resized browser window) — render() itself is always a full
+		// wipe-and-rebuild, so calling it again here is safe.
+		var wasMobile = isMobileAccordion();
+		window.addEventListener( 'resize', function () {
+			var nowMobile = isMobileAccordion();
+
+			if ( nowMobile !== wasMobile ) {
+				wasMobile = nowMobile;
+				render();
+			}
+		} );
 
 		/*
 		 * Public handle for an embedding page (booking-flow.js's Step 1) to
@@ -850,6 +989,27 @@
 				commitActiveLeaf();
 				render();
 				return state.cart.slice();
+			},
+			/**
+			 * Wipes the browsing cart and its sessionStorage entry — called by
+			 * booking-flow.js once a booking is actually created, so a
+			 * completed booking's picks don't reappear as "already there" the
+			 * next time this widget mounts on the same page in the same tab
+			 * (sessionStorage otherwise persists them across that redirect).
+			 */
+			clearCart: function () {
+				state.cart        = [];
+				state.activeLeaf  = null;
+				state.selectedPath = [];
+				state.columns     = [ tree ];
+
+				try {
+					sessionStorage.removeItem( storageKey );
+				} catch ( e ) {
+					// Nothing to do — same best-effort rule as saveState().
+				}
+
+				render();
 			},
 		};
 	}

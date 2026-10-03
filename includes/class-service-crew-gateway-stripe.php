@@ -33,6 +33,17 @@ class Service_Crew_Gateway_Stripe implements Service_Crew_Gateway_Interface {
 	const WEBHOOK_ROUTE = '/stripe-webhook';
 
 	/**
+	 * Event types process_event() actually does something with — the single
+	 * source of truth for both that method's dispatch and the "events to
+	 * enable in Stripe" list the Payments settings screen shows an admin
+	 * (Service_Crew_Payments::build_response_settings()), so the two can
+	 * never quietly drift apart.
+	 *
+	 * @var string[]
+	 */
+	const HANDLED_EVENTS = array( 'checkout.session.completed' );
+
+	/**
 	 * Maximum age of a webhook's timestamp before it's rejected as a replay,
 	 * matching Stripe's own recommended default.
 	 *
@@ -251,7 +262,7 @@ class Service_Crew_Gateway_Stripe implements Service_Crew_Gateway_Interface {
 	 * @return void
 	 */
 	private function process_event( array $event ) {
-		if ( 'checkout.session.completed' !== $event['type'] ) {
+		if ( ! in_array( $event['type'], self::HANDLED_EVENTS, true ) ) {
 			return;
 		}
 

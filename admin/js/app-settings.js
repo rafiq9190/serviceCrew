@@ -1,8 +1,9 @@
 /**
  * Settings screen: weekly business hours, arrival windows, holidays/closed
  * dates, travel buffer, overtime allowance, the three admin timers, the
- * site-wide tax rate/mode, and the minimum-deposit-by-booking-amount
- * brackets. Talks only to /service-crew/v1/scheduling-settings — see
+ * site-wide tax rate/mode, the minimum-deposit-by-booking-amount brackets,
+ * and whether Instant Booking allows more than one service per booking.
+ * Talks only to /service-crew/v1/scheduling-settings — see
  * class-service-crew-settings.php. One sticky save bar covers every section
  * instead of a per-card Save button, since a change to any field here is
  * part of the same settings object server-side.
@@ -75,6 +76,54 @@
 		return card;
 	}
 
+	function buildBookingCard( allowMultipleServices ) {
+		var card = SCApp.sectionCard( 'dashicons-cart', 'Booking', 'Controls whether a customer can add more than one service to a single Instant Booking.' );
+
+		var toggle = SCApp.el( 'input', { type: 'checkbox', class: 'sc-allow-multi-service' } );
+		if ( allowMultipleServices ) {
+			toggle.setAttribute( 'checked', 'checked' );
+		}
+
+		card.appendChild( SCApp.el( 'label', { class: 'sc-toggle' }, [
+			toggle,
+			SCApp.el( 'span', { text: 'Allow multiple services per booking (charged as one combined deposit)' } ),
+		] ) );
+
+		return card;
+	}
+
+	function buildEmergencySurchargeCard( surcharge ) {
+		var card = SCApp.sectionCard( 'dashicons-warning', 'Emergency booking surcharge', 'Extra fee charged when a customer books Emergency (same-day, bypassing an already-taken date + arrival window) on the public booking form.' );
+
+		var toggle = SCApp.el( 'input', { type: 'checkbox', class: 'sc-emergency-enabled' } );
+		if ( surcharge.enabled ) {
+			toggle.setAttribute( 'checked', 'checked' );
+		}
+
+		card.appendChild( SCApp.el( 'label', { class: 'sc-toggle' }, [
+			toggle,
+			SCApp.el( 'span', { text: 'Charge extra for Emergency Booking' } ),
+		] ) );
+
+		var typeSelect = SCApp.el( 'select', { class: 'sc-input sc-emergency-type' }, [
+			SCApp.el( 'option', { value: 'percent', text: 'Percent of total' } ),
+			SCApp.el( 'option', { value: 'flat', text: 'Flat amount' } ),
+		] );
+		typeSelect.value = 'flat' === surcharge.type ? 'flat' : 'percent';
+
+		card.appendChild( SCApp.el( 'div', { class: 'sc-field' }, [
+			SCApp.el( 'label', { text: 'Surcharge type' } ),
+			typeSelect,
+		] ) );
+
+		card.appendChild( SCApp.el( 'div', { class: 'sc-field' }, [
+			SCApp.el( 'label', { text: 'Amount' } ),
+			SCApp.el( 'input', { type: 'number', min: '0', step: '0.01', class: 'sc-input sc-emergency-amount', value: surcharge.amount || 0 } ),
+		] ) );
+
+		return card;
+	}
+
 	function buildDepositTiersCard( tiers ) {
 		var card = SCApp.sectionCard( 'dashicons-tag', 'Minimum deposit', 'No payment, no booking — the minimum the customer must pay now, by booking amount. The bracket with the highest amount at or below the booking total applies.' );
 
@@ -123,6 +172,8 @@
 		cards.timers = SCApp.buildTimersCard( settings.timers );
 		cards.tax = buildTaxCard( settings.tax_rate_percent, settings.tax_mode );
 		cards.deposits = buildDepositTiersCard( settings.minimum_deposit_tiers );
+		cards.booking = buildBookingCard( settings.allow_multiple_services );
+		cards.emergency = buildEmergencySurchargeCard( settings.emergency_surcharge );
 
 		grid.appendChild( cards.windows );
 		grid.appendChild( cards.holidays );
@@ -130,6 +181,8 @@
 		grid.appendChild( cards.timers );
 		grid.appendChild( cards.tax );
 		grid.appendChild( cards.deposits );
+		grid.appendChild( cards.booking );
+		grid.appendChild( cards.emergency );
 		page.appendChild( grid );
 
 		root.appendChild( page );
@@ -190,6 +243,12 @@
 			tax_rate_percent: parseFloat( root.querySelector( '.sc-tax-rate' ).value ) || 0,
 			tax_mode: root.querySelector( '.sc-tax-mode' ).value,
 			minimum_deposit_tiers: depositTiers,
+			allow_multiple_services: root.querySelector( '.sc-allow-multi-service' ).checked,
+			emergency_surcharge: {
+				enabled: root.querySelector( '.sc-emergency-enabled' ).checked,
+				type: root.querySelector( '.sc-emergency-type' ).value,
+				amount: parseFloat( root.querySelector( '.sc-emergency-amount' ).value ) || 0,
+			},
 		};
 	}
 

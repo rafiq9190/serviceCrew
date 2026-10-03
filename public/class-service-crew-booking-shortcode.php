@@ -135,15 +135,17 @@ class Service_Crew_Booking_Shortcode {
 		$payload = Service_Crew_Services_Shortcode::build_pricing_payload( $tree );
 
 		/*
-		 * Only the fields the Date & Time step actually reads — travel
-		 * buffer/overtime/timers are unrelated to picking a date and window,
-		 * so they're left out rather than shipping every setting to the
-		 * browser.
+		 * Only the fields the Date & Time step (and Step 1's single-vs-multi
+		 * service gate) actually read — travel buffer/overtime/timers are
+		 * unrelated to picking a date and window, so they're left out rather
+		 * than shipping every setting to the browser.
 		 */
 		$payload['schedulingSettings'] = array(
-			'business_hours'  => $scheduling_settings['business_hours'],
-			'holidays'        => $scheduling_settings['holidays'],
-			'arrival_windows' => $scheduling_settings['arrival_windows'],
+			'business_hours'          => $scheduling_settings['business_hours'],
+			'holidays'                => $scheduling_settings['holidays'],
+			'arrival_windows'         => $scheduling_settings['arrival_windows'],
+			'allow_multiple_services' => $scheduling_settings['allow_multiple_services'],
+			'emergency_surcharge'     => $scheduling_settings['emergency_surcharge'],
 		);
 
 		$root_id = 'sc-booking-flow-' . $instance;

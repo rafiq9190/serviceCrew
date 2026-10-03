@@ -104,6 +104,158 @@ class Service_Crew_Geocoding {
 	 */
 	public function __construct() {
 		add_action( 'save_post_sc_crew', array( $this, 'geocode_on_save' ), 20, 2 );
+		add_action( 'rest_api_init', array( $this, 'register_routes' ) );
+	}
+
+	/**
+	 * Registers GET /service-crew/v1/verify-address. Public — the same
+	 * booking/quote forms that need this are themselves unauthenticated.
+	 *
+	 * @return void
+	 */
+	public function register_routes() {
+		register_rest_route(
+			'service-crew/v1',
+			'/verify-address',
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( $this, 'rest_verify_address' ),
+				'permission_callback' => '__return_true',
+			)
+		);
+	}
+
+	/**
+	 * GET handler wrapping verify_zip() for the booking/quote forms' address
+	 * field — "does this ZIP actually belong to this address" without a paid
+	 * Google Maps key, per explicit request.
+	 *
+	 * @param WP_REST_Request $request Request; 'address'/'zip' query params.
+	 * @return WP_REST_Response
+	 */
+	public function rest_verify_address( $request ) {
+		$address = sanitize_text_field( (string) $request->get_param( 'address' ) );
+		$zip     = sanitize_text_field( (string) $request->get_param( 'zip' ) );
+
+		return rest_ensure_response( $this->verify_zip( $address, $zip ) );
+	}
+
+	/**
+	 * Checks whether a customer-entered ZIP matches the postal code Nominatim
+	 * resolves for the address alone (never blocks — a failed/ambiguous
+	 * lookup reports checked=false so the caller treats it as a match rather
+	 * than a false block). Also returns the resolved ZIP so a caller can
+	 * auto-fill an empty ZIP field.
+	 *
+	 * @param string $address Street address.
+	 * @param string $zip     Customer-entered ZIP/postal code.
+	 * @return array{checked: bool, matches: bool, resolved_zip: string|null}
+	 */
+	public function verify_zip( $address, $zip ) {
+		$address = trim( (string) $address );
+		$zip     = trim( (string) $zip );
+
+		if ( '' === $address ) {
+			return array(
+				'checked'      => false,
+				'matches'      => true,
+				'resolved_zip' => null,
+			);
+		}
+
+		$resolved = $this->lookup_postcode( $address );
+
+		if ( null === $resolved ) {
+			return array(
+				'checked'      => false,
+				'matches'      => true,
+				'resolved_zip' => null,
+			);
+		}
+
+		if ( '' === $zip ) {
+			return array(
+				'checked'      => true,
+				'matches'      => true,
+				'resolved_zip' => $resolved,
+			);
+		}
+
+		$normalize = function ( $value ) {
+			return strtoupper( preg_replace( '/[^A-Za-z0-9]/', '', (string) $value ) );
+		};
+
+		$normalized_resolved = $normalize( $resolved );
+		$normalized_entered  = $normalize( $zip );
+
+		// startsWith either direction — covers a US ZIP+4 ("12345-6789")
+		// entered against a plain 5-digit resolved code, or vice versa.
+		$matches = 0 === strpos( $normalized_resolved, $normalized_entered )
+			|| 0 === strpos( $normalized_entered, $normalized_resolved );
+
+		return array(
+			'checked'      => true,
+			'matches'      => $matches,
+			'resolved_zip' => $resolved,
+		);
+	}
+
+	/**
+	 * Looks up just the postal code Nominatim resolves for an address string
+	 * (via addressdetails=1), independent of lookup()'s lat/lng cache — same
+	 * throttle/cache pattern, never throws.
+	 *
+	 * @param string $address Address to resolve.
+	 * @return string|null Postal code, or null if unresolved.
+	 */
+	private function lookup_postcode( $address ) {
+		$address = trim( (string) $address );
+
+		if ( '' === $address ) {
+			return null;
+		}
+
+		$cache_key = 'sc_geocode_postcode_' . md5( strtolower( $address ) );
+		$cached    = get_transient( $cache_key );
+
+		if ( false !== $cached ) {
+			return '' !== $cached ? $cached : null;
+		}
+
+		$this->throttle();
+
+		$url = add_query_arg(
+			array(
+				'q'              => $address,
+				'format'         => 'json',
+				'addressdetails' => 1,
+				'limit'          => 1,
+			),
+			'https://nominatim.openstreetmap.org/search'
+		);
+
+		$response = wp_remote_get(
+			$url,
+			array(
+				'timeout'    => 10,
+				'user-agent' => 'ServiceCrew WordPress Plugin (' . home_url( '/' ) . ')',
+			)
+		);
+
+		update_option( self::RATE_LIMIT_OPTION, microtime( true ), false );
+
+		$postcode = '';
+		if ( ! is_wp_error( $response ) && 200 === (int) wp_remote_retrieve_response_code( $response ) ) {
+			$body = json_decode( wp_remote_retrieve_body( $response ), true );
+
+			if ( is_array( $body ) && ! empty( $body[0]['address']['postcode'] ) ) {
+				$postcode = sanitize_text_field( $body[0]['address']['postcode'] );
+			}
+		}
+
+		set_transient( $cache_key, $postcode, '' !== $postcode ? self::CACHE_TTL_SUCCESS : self::CACHE_TTL_FAILURE );
+
+		return '' !== $postcode ? $postcode : null;
 	}
 
 	/**
