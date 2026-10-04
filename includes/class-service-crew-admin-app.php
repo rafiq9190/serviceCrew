@@ -1,15 +1,16 @@
 <?php
 /**
  * Custom admin app shell for Services, Discounts, Payments, Emails,
- * Appearance, Settings, Bookings and Customers — replaces the native
+ * Appearance, Settings, Bookings, Customers and Agent — replaces the native
  * post-editor screens for sc_service. Each submenu renders a bare container
  * div; all rendering/interaction happens client-side against
  * Service_Crew_Services_Controller / Service_Crew_Discounts /
  * Service_Crew_Payments / Service_Crew_Emails / Service_Crew_Appearance /
  * Service_Crew_Settings / Service_Crew_Bookings_Controller /
- * Service_Crew_Customers_Controller's REST routes via wp-api-fetch (core's
- * own REST client — it handles the nonce and root URL for us, no
- * hand-rolled AJAX plumbing needed).
+ * Service_Crew_Customers_Controller / Service_Crew_Agent_Controller /
+ * Service_Crew_Agent_Settings's REST routes via wp-api-fetch (core's own
+ * REST client — it handles the nonce and root URL for us, no hand-rolled
+ * AJAX plumbing needed).
  *
  * @package ServiceCrew
  */
@@ -80,6 +81,13 @@ class Service_Crew_Admin_App {
 	 * @var string
 	 */
 	private $hook_customers;
+
+	/**
+	 * Hook suffix for the Agent submenu page (see $hook_services).
+	 *
+	 * @var string
+	 */
+	private $hook_agent;
 
 	/**
 	 * Registers every WordPress hook this class needs. Called once from the
@@ -167,6 +175,15 @@ class Service_Crew_Admin_App {
 			'manage_options',
 			'service-crew-customers',
 			array( $this, 'render_customers_page' )
+		);
+
+		$this->hook_agent = add_submenu_page(
+			'service-crew',
+			__( 'Agent', 'service-crew' ),
+			__( 'Agent', 'service-crew' ),
+			'manage_options',
+			'service-crew-agent',
+			array( $this, 'render_agent_page' )
 		);
 	}
 
@@ -260,6 +277,17 @@ class Service_Crew_Admin_App {
 	}
 
 	/**
+	 * Renders the Agent app container.
+	 *
+	 * @return void
+	 */
+	public function render_agent_page() {
+		echo '<div class="wrap">';
+		$this->render_header( 'agent' );
+		echo '<div id="sc-app-root" data-view="agent"></div></div>';
+	}
+
+	/**
 	 * Renders the header shared by every app screen — brand mark, the
 	 * notification bell (static markup only; admin/js/app-core.js fills in
 	 * the badge count and dropdown list on every screen this renders on),
@@ -269,7 +297,7 @@ class Service_Crew_Admin_App {
 	 * disappear on every re-render). Plain page navigation (real hrefs), not
 	 * client-side routing — these are separate wp-admin pages.
 	 *
-	 * @param string $active_view One of 'services', 'discounts', 'payments', 'emails', 'appearance', 'settings', 'bookings', 'customers'.
+	 * @param string $active_view One of 'services', 'discounts', 'payments', 'emails', 'appearance', 'settings', 'bookings', 'customers', 'agent'.
 	 * @return void
 	 */
 	private function render_header( $active_view ) {
@@ -305,6 +333,10 @@ class Service_Crew_Admin_App {
 			'customers'  => array(
 				'label' => __( 'Customers', 'service-crew' ),
 				'page'  => 'service-crew-customers',
+			),
+			'agent'      => array(
+				'label' => __( 'Agent', 'service-crew' ),
+				'page'  => 'service-crew-agent',
 			),
 		);
 		?>
@@ -344,7 +376,7 @@ class Service_Crew_Admin_App {
 	 * @return void
 	 */
 	public function enqueue_assets( $hook_suffix ) {
-		$app_hooks = array( $this->hook_services, $this->hook_discounts, $this->hook_payments, $this->hook_emails, $this->hook_appearance, $this->hook_settings, $this->hook_bookings, $this->hook_customers );
+		$app_hooks = array( $this->hook_services, $this->hook_discounts, $this->hook_payments, $this->hook_emails, $this->hook_appearance, $this->hook_settings, $this->hook_bookings, $this->hook_customers, $this->hook_agent );
 
 		if ( ! in_array( $hook_suffix, $app_hooks, true ) ) {
 			return;
@@ -459,6 +491,16 @@ class Service_Crew_Admin_App {
 			wp_enqueue_script(
 				'sc-admin-app-customers',
 				SERVICE_CREW_PLUGIN_URL . 'admin/js/app-customers.js',
+				array( 'sc-admin-app-core' ),
+				SERVICE_CREW_VERSION,
+				true
+			);
+		}
+
+		if ( $this->hook_agent === $hook_suffix ) {
+			wp_enqueue_script(
+				'sc-admin-app-agent',
+				SERVICE_CREW_PLUGIN_URL . 'admin/js/app-agent.js',
 				array( 'sc-admin-app-core' ),
 				SERVICE_CREW_VERSION,
 				true

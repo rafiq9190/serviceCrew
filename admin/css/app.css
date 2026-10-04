@@ -887,6 +887,18 @@ select.sc-input {
 	flex: 1 1 160px;
 }
 
+/* Agent knowledge-base rows: a question/answer/keywords block is too much
+   content for the discount-tier row's single-line flex layout, so this one
+   variant stacks its fields instead. */
+.sc-agent-kb-row {
+	flex-direction: column;
+	align-items: stretch;
+}
+
+.sc-agent-kb-row .sc-field {
+	flex: 1 1 auto;
+}
+
 /* Toasts */
 
 .sc-app-toasts {

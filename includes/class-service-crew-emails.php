@@ -78,6 +78,8 @@ class Service_Crew_Emails {
 		add_action( 'sc_booking_status_changed', array( $this, 'on_booking_status_changed' ), 10, 3 );
 		add_action( 'sc_booking_assigned', array( $this, 'on_booking_assigned' ), 10, 4 );
 		add_action( 'sc_booking_rescheduled', array( $this, 'on_booking_rescheduled' ), 10, 5 );
+		add_action( 'sc_agent_escalation_created', array( $this, 'on_agent_escalation_created' ) );
+		add_action( 'sc_agent_escalation_answered', array( $this, 'on_agent_escalation_answered' ) );
 	}
 
 	/**
@@ -230,6 +232,20 @@ class Service_Crew_Emails {
 				'wired'   => false,
 				'subject' => sprintf( __( '[%s] Needs attention: {booking_id}', 'service-crew' ), $site_name ),
 				'body'    => __( "Booking #{booking_id} needs attention: {reason}.\n\n— {site_name}", 'service-crew' ),
+			),
+			'agent_escalation_created_admin' => array(
+				'label'   => __( 'New chat question the agent could not answer (to admin)', 'service-crew' ),
+				'enabled' => true,
+				'wired'   => true,
+				'subject' => sprintf( __( '[%s] A chat visitor needs a human answer', 'service-crew' ), $site_name ),
+				'body'    => __( "The chat agent couldn't confidently answer a visitor's question:\n\n\"{question}\"\n\nAnswer it from the ServiceCrew Agent screen's \"Pending escalations\" card — your answer gets saved into the knowledge base automatically.\n\n— {site_name}", 'service-crew' ),
+			),
+			'agent_escalation_answered_visitor' => array(
+				'label'   => __( "We've answered your question (to visitor, only if they left an email)", 'service-crew' ),
+				'enabled' => true,
+				'wired'   => true,
+				'subject' => sprintf( __( 'We have an answer for you — %s', 'service-crew' ), $site_name ),
+				'body'    => __( "Hi,\n\nYou asked:\n\"{question}\"\n\nHere's the answer:\n{answer}\n\n— {site_name}", 'service-crew' ),
 			),
 		);
 	}
@@ -606,5 +622,54 @@ class Service_Crew_Emails {
 		}
 
 		self::send( 'booking_updated_customer', $booking->customer_email, self::build_placeholders( $booking ) );
+	}
+
+	/**
+	 * Fired from Service_Crew_Agent_Escalations::create() right after a
+	 * pending escalation row is inserted.
+	 *
+	 * @param int $escalation_id Escalation id.
+	 * @return void
+	 */
+	public function on_agent_escalation_created( $escalation_id ) {
+		$escalation = Service_Crew_Agent_Escalations::get_by_id( $escalation_id );
+		if ( ! $escalation ) {
+			return;
+		}
+
+		self::send(
+			'agent_escalation_created_admin',
+			get_option( 'admin_email' ),
+			array( 'question' => (string) $escalation->question )
+		);
+	}
+
+	/**
+	 * Fired from Service_Crew_Agent_Escalations::answer(), only when the
+	 * visitor left an email during the escalation's "email me the answer"
+	 * prompt (class-service-crew-agent.php's pending_flow capture).
+	 *
+	 * @param int $escalation_id Escalation id.
+	 * @return void
+	 */
+	public function on_agent_escalation_answered( $escalation_id ) {
+		$escalation = Service_Crew_Agent_Escalations::get_by_id( $escalation_id );
+		if ( ! $escalation || Service_Crew_Agent_Escalations::STATUS_ANSWERED !== $escalation->status ) {
+			return;
+		}
+
+		$session = Service_Crew_Agent::find_session_by_id( (int) $escalation->session_id );
+		if ( ! $session || empty( $session->visitor_email ) ) {
+			return;
+		}
+
+		self::send(
+			'agent_escalation_answered_visitor',
+			$session->visitor_email,
+			array(
+				'question' => (string) $escalation->question,
+				'answer'   => (string) $escalation->answer,
+			)
+		);
 	}
 }

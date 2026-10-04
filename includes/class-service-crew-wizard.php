@@ -4,8 +4,9 @@
  * existing scheduling-settings endpoint), the mandatory address-lookup
  * consent + test, payments (thin wrapper over the existing payment-settings/
  * test-connection endpoints, skippable per the plan), a first service (thin
- * wrapper over the existing services endpoint), an optional first crew
- * member, and a finish checklist.
+ * wrapper over the existing services endpoint), the Agent chat sales agent
+ * (another thin wrapper, over /agent-settings — Phase 2's Phase E), an
+ * optional first crew member, and a finish checklist.
  *
  * Step order and progress are driven by STEP_KEYS rather than hardcoded
  * numbers, so adding a step later doesn't require renumbering anything.
@@ -74,11 +75,14 @@ class Service_Crew_Wizard {
 
 	/**
 	 * Every wizard step, in order. 'address' cannot be skipped; 'payments',
-	 * 'first_service' and 'first_crew' can.
+	 * 'first_service', 'agent' and 'first_crew' can. 'agent' (Phase 2 of the
+	 * agent feature) is a thin wrapper over the already-existing
+	 * /agent-settings endpoint, same "no wizard-owned copy of the data"
+	 * pattern as 'payments'/'first_service' — see class docblock.
 	 *
 	 * @var string[]
 	 */
-	const STEP_KEYS = array( 'basics', 'scheduling', 'address', 'payments', 'first_service', 'first_crew', 'finish' );
+	const STEP_KEYS = array( 'basics', 'scheduling', 'address', 'payments', 'first_service', 'agent', 'first_crew', 'finish' );
 
 	/**
 	 * Registers every WordPress hook this class needs. Called once from the
@@ -781,6 +785,7 @@ class Service_Crew_Wizard {
 				'scheduling_done'      => in_array( 'scheduling', $state['completed_steps'], true ),
 				'address_done'         => $state['consent_accepted'] && $state['address_test_passed'],
 				'first_service_done'   => $has_service,
+				'agent_enabled'        => ! empty( Service_Crew_Agent_Settings::get_saved_settings()['mode_enabled'] ),
 				'first_crew_done'      => $has_crew,
 				// A configured secret key in either mode, not a passed connection
 				// test — the admin may have tested and left test mode fields

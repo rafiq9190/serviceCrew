@@ -102,6 +102,63 @@ class Service_Crew_Quotes {
 			return $photo_ids;
 		}
 
+		return self::insert_quote_row( $fields, $photo_ids );
+	}
+
+	/**
+	 * Sibling to create_quote_request() for the Agent chat's FLOW_QUOTE
+	 * conversational flow (class-service-crew-agent-flows.php) — the widget
+	 * can't do a normal multipart form submission mid-conversation, so a
+	 * photo attached during the flow's own 'photos' step already went
+	 * through a separate `POST /agent/upload` route
+	 * (class-service-crew-agent-controller.php, reusing
+	 * Service_Crew_Uploads::handle_photo_uploads() exactly as that route's
+	 * own upload does) and is passed here as an already-validated
+	 * attachment id, not a raw $_FILES entry. No rate limit or honeypot
+	 * here — the chat's own per-session/per-IP rate limiting
+	 * (class-service-crew-agent-controller.php's RATE_LIMIT_*) already
+	 * covers this path.
+	 *
+	 * @param array<string,mixed> $fields    Same shape as sanitize_and_validate()'s return — the
+	 *                                        flow handler is responsible for its own step-by-step
+	 *                                        validation before calling this.
+	 * @param int[]                $photo_ids Already-uploaded attachment ids (0-6).
+	 * @return array{booking_id:int}|WP_Error
+	 */
+	public static function create_quote_request_from_attachments( array $fields, array $photo_ids = array() ) {
+		$fields = array_merge(
+			array(
+				'title'            => '',
+				'description'      => '',
+				'name'             => '',
+				'email'            => '',
+				'phone'            => '',
+				'address'          => '',
+				'zip'              => '',
+				'preferred_date'   => '',
+				'arrival_window'   => '',
+				'marketing_opt_in' => false,
+			),
+			$fields
+		);
+
+		if ( '' === $fields['title'] || '' === $fields['description'] || '' === $fields['name'] || ! is_email( $fields['email'] ) ) {
+			return new WP_Error( 'sc_quote_missing_details', __( 'Please provide a title, description, name, and a valid email.', 'service-crew' ), array( 'status' => 400 ) );
+		}
+
+		return self::insert_quote_row( $fields, array_slice( array_map( 'absint', $photo_ids ), 0, self::MAX_PHOTOS ) );
+	}
+
+	/**
+	 * Shared by create_quote_request() and create_quote_request_from_attachments():
+	 * resolves the customer + geocode, inserts the `sc_bookings` row and its
+	 * description/photo notes, and fires `sc_quote_created`.
+	 *
+	 * @param array<string,mixed> $fields    Validated fields (see sanitize_and_validate()'s return shape).
+	 * @param int[]                $photo_ids Validated attachment ids.
+	 * @return array{booking_id:int}|WP_Error
+	 */
+	private static function insert_quote_row( array $fields, array $photo_ids ) {
 		$customer_id = Service_Crew_Customers::find_or_create( $fields['name'], $fields['email'], $fields['phone'], $fields['marketing_opt_in'] );
 		if ( is_wp_error( $customer_id ) ) {
 			return $customer_id;

@@ -14,9 +14,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Handles plugin deactivation.
  *
  * Deactivation is reversible, so it must NOT delete data or drop tables —
- * that is uninstall.php's job (out of scope for this task), and only runs
- * when the user explicitly deletes the plugin. This class only does safe
- * housekeeping.
+ * that is uninstall.php's job (plugin root — WordPress calls it
+ * automatically by its fixed name/location), and only runs when the user
+ * explicitly deletes the plugin. This class only does safe housekeeping.
  */
 class Service_Crew_Deactivator {
 

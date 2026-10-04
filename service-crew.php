@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       ServiceCrew
  * Description:       Door-to-door service booking, dispatch, teams, vendors, and payments.
- * Version:           1.0.0
+ * Version:           1.0.38
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            ServiceCrew
@@ -26,8 +26,8 @@ if ( ! defined( 'ABSPATH' ) ) {
  * activator revision can bump it independently and run incremental
  * dbDelta() migrations without requiring a full plugin version bump.
  */
-define( 'SERVICE_CREW_VERSION', '1.0.33' );
-define( 'SERVICE_CREW_DB_VERSION', '1.5.0' );
+define( 'SERVICE_CREW_VERSION', '1.0.38' );
+define( 'SERVICE_CREW_DB_VERSION', '1.8.0' );
 define( 'SERVICE_CREW_PLUGIN_FILE', __FILE__ );
 define( 'SERVICE_CREW_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'SERVICE_CREW_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -116,5 +116,11 @@ function service_crew_init() {
 	new Service_Crew_Notifications();
 	new Service_Crew_Notifications_Controller();
 	new Service_Crew_Cron();
+	new Service_Crew_Agent_KB();
+	new Service_Crew_Agent_Settings();
+	new Service_Crew_Agent();
+	new Service_Crew_Agent_Controller();
+	new Service_Crew_Agent_Widget();
+	new Service_Crew_Agent_Push();
 }
 add_action( 'plugins_loaded', 'service_crew_init' );

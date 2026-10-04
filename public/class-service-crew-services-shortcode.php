@@ -93,6 +93,12 @@ class Service_Crew_Services_Shortcode {
 	 * @return string HTML markup.
 	 */
 	public function render() {
+		if ( Service_Crew_Agent_Settings::is_legacy_widgets_suppressed() ) {
+			return current_user_can( 'manage_options' )
+				? '<p class="sc-booking-widget-empty">' . esc_html__( 'This widget is hidden while the Agent chat is set to replace it — see the Agent settings screen.', 'service-crew' ) . '</p>'
+				: '';
+		}
+
 		static $instance = 0;
 		++$instance;
 

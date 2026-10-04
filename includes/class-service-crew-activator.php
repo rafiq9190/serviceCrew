@@ -80,6 +80,11 @@ class Service_Crew_Activator {
 		dbDelta( self::overtime_sql( $wpdb, $charset_collate ) );
 		dbDelta( self::notes_sql( $wpdb, $charset_collate ) );
 		dbDelta( self::notifications_sql( $wpdb, $charset_collate ) );
+		dbDelta( self::agent_sessions_sql( $wpdb, $charset_collate ) );
+		dbDelta( self::agent_messages_sql( $wpdb, $charset_collate ) );
+		dbDelta( self::agent_kb_entries_sql( $wpdb, $charset_collate ) );
+		dbDelta( self::agent_escalations_sql( $wpdb, $charset_collate ) );
+		dbDelta( self::agent_push_subscriptions_sql( $wpdb, $charset_collate ) );
 	}
 
 	/**
@@ -564,6 +569,162 @@ class Service_Crew_Activator {
 			PRIMARY KEY  (id),
 			KEY is_read (is_read),
 			KEY booking_id (booking_id)
+		) {$charset_collate};";
+	}
+
+	/**
+	 * sc_agent_sessions — one row per visitor conversation with the "Agent"
+	 * rule-based chat sales agent (Phase A of the agent feature — see
+	 * C:\Users\fujitsu\.claude\plans\scalable-wondering-milner.md). The
+	 * visitor's plaintext session key lives only in their own browser
+	 * (localStorage); only its SHA-256 hash is stored here, same
+	 * stored-hashed/single-purpose convention as every other token in this
+	 * plugin (Service_Crew_Payments, status tokens). booking_id links to a
+	 * real sc_bookings row once a conversation produces a quote/booking — no
+	 * parallel "lead" concept. pending_flow/pending_flow_state are unused
+	 * until Phase B's slot-filling flows exist; present now so Phase B needs
+	 * no further migration.
+	 *
+	 * @param wpdb   $wpdb             WordPress database access object.
+	 * @param string $charset_collate  Charset/collation clause from $wpdb->get_charset_collate().
+	 * @return string CREATE TABLE statement for dbDelta().
+	 */
+	private static function agent_sessions_sql( $wpdb, $charset_collate ) {
+		$table_name = $wpdb->prefix . 'sc_agent_sessions';
+
+		return "CREATE TABLE {$table_name} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			session_token_hash varchar(64) NOT NULL,
+			session_token_expires_at datetime DEFAULT NULL,
+			visitor_name varchar(191) NOT NULL DEFAULT '',
+			visitor_email varchar(191) NOT NULL DEFAULT '',
+			visitor_phone varchar(50) NOT NULL DEFAULT '',
+			booking_id bigint(20) unsigned DEFAULT NULL,
+			pending_flow varchar(30) DEFAULT NULL,
+			pending_flow_state longtext,
+			status varchar(20) NOT NULL DEFAULT 'active',
+			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY  (id),
+			UNIQUE KEY session_token_hash (session_token_hash),
+			KEY booking_id (booking_id),
+			KEY status (status)
+		) {$charset_collate};";
+	}
+
+	/**
+	 * sc_agent_messages — full transcript for an agent session. meta stores
+	 * the matched KB id/confidence as JSON (debugging + future KB curation
+	 * from real transcripts); attachment_id is a normal WP attachment id,
+	 * unused until Phase B's photo-upload flow.
+	 *
+	 * @param wpdb   $wpdb             WordPress database access object.
+	 * @param string $charset_collate  Charset/collation clause from $wpdb->get_charset_collate().
+	 * @return string CREATE TABLE statement for dbDelta().
+	 */
+	private static function agent_messages_sql( $wpdb, $charset_collate ) {
+		$table_name = $wpdb->prefix . 'sc_agent_messages';
+
+		return "CREATE TABLE {$table_name} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			session_id bigint(20) unsigned NOT NULL,
+			sender varchar(10) NOT NULL DEFAULT 'visitor',
+			message_type varchar(20) NOT NULL DEFAULT 'text',
+			body longtext,
+			attachment_id bigint(20) unsigned DEFAULT NULL,
+			meta longtext,
+			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY  (id),
+			KEY session_id (session_id)
+		) {$charset_collate};";
+	}
+
+	/**
+	 * sc_agent_kb_entries — the admin-curated + self-learned FAQ the rule-
+	 * based matcher (class-service-crew-agent-matcher.php) scores a visitor's
+	 * message against. source = 'learned' is an admin's escalation answer
+	 * (Phase C) saved back in so the same question auto-answers next time —
+	 * this is literally the agent's own memory the owner asked for.
+	 *
+	 * @param wpdb   $wpdb             WordPress database access object.
+	 * @param string $charset_collate  Charset/collation clause from $wpdb->get_charset_collate().
+	 * @return string CREATE TABLE statement for dbDelta().
+	 */
+	private static function agent_kb_entries_sql( $wpdb, $charset_collate ) {
+		$table_name = $wpdb->prefix . 'sc_agent_kb_entries';
+
+		return "CREATE TABLE {$table_name} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			question varchar(255) NOT NULL DEFAULT '',
+			answer text,
+			keywords varchar(255) NOT NULL DEFAULT '',
+			related_service_id bigint(20) unsigned DEFAULT NULL,
+			source varchar(10) NOT NULL DEFAULT 'manual',
+			is_active tinyint(1) unsigned NOT NULL DEFAULT 1,
+			hit_count bigint(20) unsigned NOT NULL DEFAULT 0,
+			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY  (id),
+			KEY is_active (is_active),
+			KEY source (source)
+		) {$charset_collate};";
+	}
+
+	/**
+	 * sc_agent_escalations — a visitor question the matcher couldn't
+	 * confidently (or plausibly) answer, saved for an admin to answer from the
+	 * Agent screen's "Pending escalations" card. Answering one both logs the
+	 * answer back into the session's own transcript
+	 * (Service_Crew_Agent::log_message()) and saves it into
+	 * sc_agent_kb_entries as a 'learned' row (Service_Crew_Agent_KB::learn())
+	 * so the same question auto-answers next time.
+	 *
+	 * @param wpdb   $wpdb             WordPress database access object.
+	 * @param string $charset_collate  Charset/collation clause from $wpdb->get_charset_collate().
+	 * @return string CREATE TABLE statement for dbDelta().
+	 */
+	private static function agent_escalations_sql( $wpdb, $charset_collate ) {
+		$table_name = $wpdb->prefix . 'sc_agent_escalations';
+
+		return "CREATE TABLE {$table_name} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			session_id bigint(20) unsigned NOT NULL,
+			question text,
+			status varchar(10) NOT NULL DEFAULT 'pending',
+			answer text,
+			answered_at datetime DEFAULT NULL,
+			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY  (id),
+			KEY status (status),
+			KEY session_id (session_id)
+		) {$charset_collate};";
+	}
+
+	/**
+	 * sc_agent_push_subscriptions — one row per admin browser/device that
+	 * enabled push alerts for the Agent screen's "Pending escalations" card
+	 * (Phase D — class-service-crew-agent-push.php). `endpoint`/`p256dh`/
+	 * `auth` are exactly the three fields a browser's
+	 * `PushSubscription.toJSON()` exposes — no encryption keys of our own
+	 * are stored, since this sends empty-payload pushes only (no RFC8291
+	 * payload encryption).
+	 *
+	 * @param wpdb   $wpdb             WordPress database access object.
+	 * @param string $charset_collate  Charset/collation clause from $wpdb->get_charset_collate().
+	 * @return string CREATE TABLE statement for dbDelta().
+	 */
+	private static function agent_push_subscriptions_sql( $wpdb, $charset_collate ) {
+		$table_name = $wpdb->prefix . 'sc_agent_push_subscriptions';
+
+		return "CREATE TABLE {$table_name} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			user_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			endpoint text NOT NULL,
+			p256dh varchar(255) NOT NULL DEFAULT '',
+			auth varchar(255) NOT NULL DEFAULT '',
+			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY  (id),
+			KEY user_id (user_id)
 		) {$charset_collate};";
 	}
 }

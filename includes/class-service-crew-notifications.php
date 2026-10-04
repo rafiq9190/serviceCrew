@@ -1,11 +1,15 @@
 <?php
 /**
- * Admin bell/menu-badge notifications. Listens for exactly the two events
- * confirmed with the user — an instant booking being confirmed (paid), and a
- * new quote request being submitted — reusing the same WordPress action
- * hooks `class-service-crew-emails.php` already listens to for the admin
- * emails, rather than adding any new instrumentation to the booking/quote/
- * payment classes themselves.
+ * Admin bell/menu-badge notifications. Listens for the two events confirmed
+ * with the user — an instant booking being confirmed (paid), and a new quote
+ * request being submitted — reusing the same WordPress action hooks
+ * `class-service-crew-emails.php` already listens to for the admin emails,
+ * rather than adding any new instrumentation to the booking/quote/payment
+ * classes themselves. A third source, pending Agent chat escalations, is
+ * merged into the bell's count/list by directly querying
+ * Service_Crew_Agent_Escalations (see get_unread_count()/get_recent()) —
+ * not via a hook, since an escalation has no booking_id to satisfy
+ * sc_notifications' own NOT NULL column.
  *
  * Mirrors that class's own hook-registration pattern, including its
  * documented priority-20 reasoning for `sc_payment_succeeded` (must run
@@ -32,8 +36,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Service_Crew_Notifications {
 
-	const TYPE_BOOKING_CONFIRMED = 'booking_confirmed';
-	const TYPE_QUOTE_CREATED     = 'quote_created';
+	const TYPE_BOOKING_CONFIRMED  = 'booking_confirmed';
+	const TYPE_QUOTE_CREATED      = 'quote_created';
+	const TYPE_AGENT_ESCALATION   = 'agent_escalation';
 
 	/**
 	 * Registers every WordPress hook this class needs. Called once from the
@@ -146,19 +151,27 @@ class Service_Crew_Notifications {
 
 	/**
 	 * Count of unread notifications — read on every wp-admin page load (the
-	 * menu-badge callback), so this stays a single indexed COUNT(*).
+	 * menu-badge callback). Merges in pending agent escalations by querying
+	 * Service_Crew_Agent_Escalations directly rather than inserting a row
+	 * into sc_notifications for each one — that table's booking_id column is
+	 * NOT NULL, and an escalation has no booking to attach to.
 	 *
 	 * @return int
 	 */
 	public static function get_unread_count() {
 		global $wpdb;
 
-		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}sc_notifications WHERE is_read = 0" );
+		$booking_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}sc_notifications WHERE is_read = 0" );
+
+		return $booking_count + Service_Crew_Agent_Escalations::count_pending();
 	}
 
 	/**
 	 * The most recent notifications, newest first, regardless of read state
 	 * — the bell dropdown always shows recent activity, not just unread.
+	 * Merges in every pending agent escalation (see get_unread_count()'s
+	 * docblock for why those live in their own table, not sc_notifications),
+	 * re-sorted together by created_at and capped at $limit.
 	 *
 	 * @param int $limit Row cap.
 	 * @return array<int,object>
@@ -166,7 +179,7 @@ class Service_Crew_Notifications {
 	public static function get_recent( $limit = 20 ) {
 		global $wpdb;
 
-		return $wpdb->get_results(
+		$booking_items = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT id, type, booking_id, message, is_read, created_at
 				FROM {$wpdb->prefix}sc_notifications
@@ -175,6 +188,35 @@ class Service_Crew_Notifications {
 				$limit
 			)
 		);
+
+		$escalation_items = array_map(
+			function ( $escalation ) {
+				return (object) array(
+					'id'         => (int) $escalation->id,
+					'type'       => self::TYPE_AGENT_ESCALATION,
+					'booking_id' => 0,
+					'message'    => sprintf(
+						/* translators: %s: truncated visitor question. */
+						__( 'Unanswered chat question — %s', 'service-crew' ),
+						wp_trim_words( $escalation->question, 12, '…' )
+					),
+					'is_read'    => 0,
+					'created_at' => $escalation->created_at,
+				);
+			},
+			Service_Crew_Agent_Escalations::get_pending()
+		);
+
+		$combined = array_merge( $booking_items, $escalation_items );
+
+		usort(
+			$combined,
+			function ( $a, $b ) {
+				return strcmp( $b->created_at, $a->created_at );
+			}
+		);
+
+		return array_slice( $combined, 0, $limit );
 	}
 
 	/**

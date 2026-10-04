@@ -378,10 +378,21 @@ window.SCApp = ( function () {
 			}
 
 			items.forEach( function ( item ) {
-				list.appendChild( el( 'div', { class: 'sc-bell-dropdown__item' }, [
+				var children = [
 					el( 'p', { class: 'sc-bell-dropdown__message', text: item.message } ),
 					el( 'span', { class: 'sc-bell-dropdown__time', text: timeAgo( item.created_at ) } ),
-				] ) );
+				];
+
+				// Agent escalations have no booking to link to — point at the
+				// Agent screen's "Pending escalations" card instead of the
+				// generic "View all bookings" link every other item shares.
+				var tag  = 'agent_escalation' === item.type ? 'a' : 'div';
+				var attrs = { class: 'sc-bell-dropdown__item' };
+				if ( 'a' === tag ) {
+					attrs.href = 'admin.php?page=service-crew-agent';
+				}
+
+				list.appendChild( el( tag, attrs, children ) );
 			} );
 		}
 

@@ -52,6 +52,7 @@
 		{ key: 'address', label: 'Address lookup' },
 		{ key: 'payments', label: 'Payments' },
 		{ key: 'first_service', label: 'First service' },
+		{ key: 'agent', label: 'Agent' },
 		{ key: 'first_crew', label: 'First crew member' },
 		{ key: 'finish', label: 'Finish' },
 	];
@@ -62,6 +63,7 @@
 		basics: null,
 		schedulingSettings: null,
 		paymentSettings: null,
+		agentSettings: null,
 	};
 
 	function stepIndexForKey( key ) {
@@ -573,6 +575,67 @@
 		);
 	}
 
+	// ---- Step 6: Agent chat sales agent (thin wrapper over /agent-settings, skippable) --
+
+	function renderAgentStep() {
+		var settings = state.agentSettings;
+
+		var body = SCApp.el( 'div', {} );
+		body.appendChild( SCApp.el( 'h2', { text: 'Agent' } ) );
+		body.appendChild( SCApp.el( 'p', { class: 'sc-help', text: "A rule-based chat agent that answers visitors' questions from your services and knowledge base, and flags anything it can't answer for you. Turn it on now, or skip and set it up later from the Agent menu." } ) );
+
+		var enabledToggle = SCApp.el( 'input', { type: 'checkbox' } );
+		if ( settings.mode_enabled ) {
+			enabledToggle.setAttribute( 'checked', 'checked' );
+		}
+		body.appendChild( SCApp.el( 'label', { class: 'sc-toggle', style: 'margin-bottom: 14px;' }, [
+			enabledToggle,
+			SCApp.el( 'span', { text: 'Show the chat agent on the site' } ),
+		] ) );
+
+		var greetingInput = SCApp.el( 'textarea', { class: 'sc-input', rows: '2', text: settings.greeting } );
+		body.appendChild( SCApp.el( 'div', { class: 'sc-field' }, [
+			SCApp.el( 'label', { text: 'Greeting message' } ),
+			greetingInput,
+		] ) );
+
+		var skipLink = SCApp.el( 'button', { type: 'button', class: 'sc-link-danger', text: 'Skip for now — set up later from the Agent menu' } );
+		body.appendChild( skipLink );
+
+		function goNext() {
+			saveWizardState( { completed_steps: markStepComplete( 'agent' ) } ).then( function () {
+				goToStep( state.stepIndex + 1 );
+			} );
+		}
+
+		skipLink.addEventListener( 'click', goNext );
+
+		renderShell(
+			body,
+			function () { goToStep( state.stepIndex - 1 ); },
+			function () {
+				// PUT replaces the whole settings object server-side (see
+				// class-service-crew-agent-settings.php's update_settings()),
+				// so every other field this step doesn't show (thresholds,
+				// tone, sales nudge, etc.) must be resent as-is, not omitted
+				// — an omitted field there falls back to a hardcoded default,
+				// not the currently saved value.
+				SCApp.request( {
+					path: '/service-crew/v1/agent-settings',
+					method: 'PUT',
+					data: Object.assign( {}, settings, {
+						mode_enabled: enabledToggle.checked,
+						greeting: greetingInput.value,
+					} ),
+				} ).then( function ( saved ) {
+					state.agentSettings = saved;
+					goNext();
+				} );
+			},
+			'Next'
+		);
+	}
+
 	// ---- Step 6: first crew member (skippable) -----------------------------
 
 	function renderFirstCrewStep() {
@@ -682,6 +745,7 @@
 			list.appendChild( checklistRow( 'Address lookup', summary.address_done ) );
 			list.appendChild( checklistRow( 'Payments', summary.payments_done, summary.payments_done ? '' : 'Stripe not connected — instant booking is disabled until keys are added.' ) );
 			list.appendChild( checklistRow( 'First service', summary.first_service_done, summary.first_service_done ? '' : 'No services yet — instant booking has nothing to sell until one exists.' ) );
+			list.appendChild( checklistRow( 'Agent chat', summary.agent_enabled, summary.agent_enabled ? '' : 'Off — optional, turn it on any time from the Agent menu.' ) );
 			list.appendChild( checklistRow( 'First crew member', summary.first_crew_done, summary.first_crew_done ? '' : 'No crew yet — optional, but nothing can be assigned until one exists.' ) );
 		} );
 	}
@@ -692,6 +756,7 @@
 		address: renderAddressStep,
 		payments: renderPaymentsStep,
 		first_service: renderFirstServiceStep,
+		agent: renderAgentStep,
 		first_crew: renderFirstCrewStep,
 		finish: renderFinishStep,
 	};
@@ -718,6 +783,10 @@
 		} )
 		.then( function ( paymentSettings ) {
 			state.paymentSettings = paymentSettings;
+			return SCApp.request( { path: '/service-crew/v1/agent-settings' } );
+		} )
+		.then( function ( agentSettings ) {
+			state.agentSettings = agentSettings;
 			render();
 		} );
 } )();

@@ -1,0 +1,289 @@
+/**
+ * Sitewide chat launcher + panel for the Agent chat sales agent (Phase A).
+ * Reuses the admin-configurable --sc-w-* color tokens
+ * (class-service-crew-appearance.php) the booking widget already uses, so
+ * the chat matches whatever palette the admin picked there, with the same
+ * radius/shadow/transition scale as public/css/booking-widget.css.
+ */
+
+.sc-agent-widget {
+	--sc-aw-radius-lg: 16px;
+	--sc-aw-radius-md: 10px;
+	--sc-aw-radius-pill: 999px;
+	--sc-aw-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+	--sc-aw-transition: 0.18s ease;
+	position: fixed;
+	z-index: 999999;
+	right: 20px;
+	bottom: 20px;
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.sc-agent-launcher {
+	position: relative;
+	width: 60px;
+	height: 60px;
+	border-radius: var(--sc-aw-radius-pill);
+	border: none;
+	cursor: pointer;
+	background: var(--sc-w-accent, #4f46e5);
+	color: #fff;
+	box-shadow: var(--sc-aw-shadow);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transition: transform var(--sc-aw-transition);
+}
+
+.sc-agent-launcher .dashicons {
+	font-size: 28px;
+	width: 28px;
+	height: 28px;
+}
+
+.sc-agent-launcher:hover {
+	transform: scale(1.05);
+}
+
+.sc-agent-launcher--pulse {
+	animation: sc-agent-pulse 1.8s ease-out 3;
+}
+
+@keyframes sc-agent-pulse {
+	0% {
+		box-shadow: var(--sc-aw-shadow), 0 0 0 0 rgba(79, 70, 229, 0.5);
+	}
+	100% {
+		box-shadow: var(--sc-aw-shadow), 0 0 0 16px rgba(79, 70, 229, 0);
+	}
+}
+
+.sc-agent-launcher__badge {
+	position: absolute;
+	top: -2px;
+	right: -2px;
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+	background: #ef4444;
+	border: 2px solid #fff;
+}
+
+.sc-agent-greeting {
+	position: absolute;
+	right: 0;
+	bottom: 72px;
+	width: 260px;
+	background: var(--sc-w-surface, #fff);
+	color: var(--sc-w-text, #0f172a);
+	border: 1px solid var(--sc-w-border, #e2e8f0);
+	border-radius: var(--sc-aw-radius-md);
+	box-shadow: var(--sc-aw-shadow);
+	padding: 14px 16px;
+	cursor: pointer;
+	animation: sc-agent-fade-in var(--sc-aw-transition);
+}
+
+.sc-agent-greeting p {
+	margin: 0;
+	font-size: 13px;
+	line-height: 1.5;
+	padding-right: 18px;
+}
+
+.sc-agent-greeting__close {
+	position: absolute;
+	top: 6px;
+	right: 6px;
+	background: none;
+	border: none;
+	cursor: pointer;
+	color: var(--sc-w-muted-text, #64748b);
+	padding: 2px;
+}
+
+@keyframes sc-agent-fade-in {
+	from { opacity: 0; transform: translateY(6px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+
+.sc-agent-panel {
+	position: absolute;
+	right: 0;
+	bottom: 72px;
+	width: 340px;
+	max-height: 480px;
+	display: flex;
+	flex-direction: column;
+	background: var(--sc-w-surface, #fff);
+	border-radius: var(--sc-aw-radius-lg);
+	box-shadow: var(--sc-aw-shadow);
+	overflow: hidden;
+	animation: sc-agent-fade-in var(--sc-aw-transition);
+}
+
+.sc-agent-panel[hidden] {
+	display: none;
+}
+
+.sc-agent-panel__header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 14px 16px;
+	background: var(--sc-w-accent, #4f46e5);
+	color: #fff;
+}
+
+.sc-agent-panel__title {
+	font-weight: 600;
+	font-size: 15px;
+}
+
+.sc-agent-panel__close {
+	background: none;
+	border: none;
+	color: #fff;
+	cursor: pointer;
+	display: flex;
+}
+
+.sc-agent-panel__messages {
+	flex: 1;
+	overflow-y: auto;
+	padding: 14px;
+	background: var(--sc-w-background, #f8fafc);
+	min-height: 220px;
+}
+
+.sc-agent-message {
+	display: flex;
+	margin-bottom: 10px;
+}
+
+.sc-agent-message p {
+	margin: 0;
+	max-width: 80%;
+	padding: 9px 13px;
+	border-radius: var(--sc-aw-radius-md);
+	font-size: 13px;
+	line-height: 1.45;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.sc-agent-message--visitor {
+	justify-content: flex-end;
+}
+
+.sc-agent-message--visitor p {
+	background: var(--sc-w-accent, #4f46e5);
+	color: #fff;
+	border-bottom-right-radius: 3px;
+}
+
+.sc-agent-message--agent p {
+	background: var(--sc-w-surface, #fff);
+	color: var(--sc-w-text, #0f172a);
+	border: 1px solid var(--sc-w-border, #e2e8f0);
+	border-bottom-left-radius: 3px;
+}
+
+.sc-agent-message--typing p,
+.sc-agent-message--typing {
+	display: flex;
+	gap: 4px;
+	background: none;
+	border: none;
+	padding: 9px 13px;
+}
+
+.sc-agent-message--typing span {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--sc-w-muted-text, #64748b);
+	animation: sc-agent-typing 1s infinite ease-in-out;
+}
+
+.sc-agent-message--typing span:nth-child(2) { animation-delay: 0.15s; }
+.sc-agent-message--typing span:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes sc-agent-typing {
+	0%, 60%, 100% { opacity: 0.3; }
+	30% { opacity: 1; }
+}
+
+.sc-agent-panel__composer {
+	display: flex;
+	gap: 8px;
+	padding: 12px;
+	border-top: 1px solid var(--sc-w-border, #e2e8f0);
+}
+
+.sc-agent-panel__input {
+	flex: 1;
+	border: 1px solid var(--sc-w-border, #e2e8f0);
+	border-radius: var(--sc-aw-radius-pill);
+	padding: 9px 14px;
+	font-size: 13px;
+}
+
+.sc-agent-panel__input:focus {
+	outline: none;
+	border-color: var(--sc-w-accent, #4f46e5);
+}
+
+.sc-agent-panel__send {
+	width: 36px;
+	height: 36px;
+	border-radius: 50%;
+	border: none;
+	background: var(--sc-w-accent, #4f46e5);
+	color: #fff;
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+}
+
+.sc-agent-panel__attach {
+	width: 36px;
+	height: 36px;
+	border-radius: 50%;
+	border: 1px solid var(--sc-w-border, #e2e8f0);
+	background: #fff;
+	color: var(--sc-w-text-muted, #64748b);
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+}
+
+.sc-agent-message a {
+	color: inherit;
+	text-decoration: underline;
+	word-break: break-all;
+}
+
+@media (max-width: 600px) {
+	.sc-agent-widget {
+		right: 12px;
+		bottom: 12px;
+	}
+
+	.sc-agent-panel {
+		position: fixed;
+		inset: 0;
+		width: 100%;
+		max-height: none;
+		border-radius: 0;
+	}
+
+	.sc-agent-greeting {
+		width: calc(100vw - 32px);
+		right: -4px;
+	}
+}
